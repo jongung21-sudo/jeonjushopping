@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // 기본 환경변수
-const defaultUrl = 'https://opyqqllhhirdrcilqsev.supabase.co';
+const defaultUrl = 'https://bjofkwwzeapgjahsjdzb.supabase.co';
 const envUrl = import.meta.env.VITE_SUPABASE_URL;
 const envAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 

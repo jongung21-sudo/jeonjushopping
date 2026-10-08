@@ -130,6 +130,7 @@ export interface User {
   postalCode?: string;
   address?: string;
   detailAddress?: string;
+  password?: string;
   role: 'customer' | 'admin';
   membershipGrade: '전주이씨 가문회원' | '로열 블랙' | '헤리티지 프레스티지';
   points: number;

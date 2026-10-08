@@ -163,15 +163,19 @@ export const dbService = {
     }
   },
 
-  // 회원 프로필 저장/업데이트 (회원가입, 포인트, 등급)
-  async saveProfile(user: User): Promise<boolean> {
+  // 회원 프로필 저장/업데이트 (members 테이블 및 profiles 테이블에 이메일, 비밀번호 등 저장)
+  async saveProfile(user: User, password?: string): Promise<boolean> {
     if (!isSupabaseConfigured()) return false;
     try {
       const client = getSupabaseClient();
-      const { error } = await client.from('profiles').upsert([
+      const pwd = password || user.password || '';
+
+      // 1. members 테이블에 저장 (사용자가 요청한 회원가입 테이블)
+      await client.from('members').upsert([
         {
           id: user.id,
           email: user.email,
+          password: pwd,
           name: user.name,
           phone: user.phone || '',
           postal_code: user.postalCode || '',
@@ -183,7 +187,26 @@ export const dbService = {
           updated_at: new Date().toISOString(),
         },
       ]);
-      return !error;
+
+      // 2. profiles 테이블에도 동기화
+      await client.from('profiles').upsert([
+        {
+          id: user.id,
+          email: user.email,
+          password: pwd,
+          name: user.name,
+          phone: user.phone || '',
+          postal_code: user.postalCode || '',
+          address: user.address || '',
+          detail_address: user.detailAddress || '',
+          points: user.points ?? 5000,
+          membership_grade: user.membershipGrade || '전주이씨 가문회원',
+          role: user.role || 'customer',
+          updated_at: new Date().toISOString(),
+        },
+      ]);
+
+      return true;
     } catch (e) {
       console.warn('Supabase saveProfile fallback:', e);
       return false;

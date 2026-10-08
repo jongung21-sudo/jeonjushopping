@@ -204,12 +204,12 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
                 <span>Supabase Anon Public Key (공개 키)</span>
               </label>
               <a
-                href="https://supabase.com/dashboard/project/opyqqllhhirdrcilqsev/settings/api"
+                href="https://supabase.com/dashboard/project/bjofkwwzeapgjahsjdzb/settings/api"
                 target="_blank"
                 rel="noreferrer"
-                className="text-[11px] text-bronze hover:underline inline-flex items-center gap-1"
+                className="text-[11px] text-bronze hover:underline inline-flex items-center gap-1 font-medium"
               >
-                <span>대시보드에서 키 확인</span>
+                <span>대시보드에서 키 복사하기</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
@@ -222,7 +222,7 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
             />
             <div className="flex items-center justify-between mt-2">
               <span className="text-[11px] text-ink-500">
-                입력하신 키는 브라우저 보안 저장소에 안전하게 유지됩니다.
+                키를 붙여넣고 [키 저장 및 적용]을 누르면 즉시 실시간 DB 모드로 활성화됩니다.
               </span>
               <button
                 type="button"
@@ -238,47 +238,90 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
         {/* Database Quick Actions */}
         <div className="mt-6 pt-5 border-t border-paper-300">
           <h3 className="text-xs font-semibold text-ink-900 uppercase tracking-wider mb-3">
-            데이터베이스 빠른 실행 및 관리
+            회원가입 테이블 생성 및 데이터베이스 관리
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Copy Members Table SQL */}
+            <div className="p-3.5 bg-paper-50 border border-bronze/40 rounded-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 font-medium text-ink-900 text-xs mb-1">
+                  <Database className="w-4 h-4 text-bronze" />
+                  <span className="font-bold">회원가입(members) SQL 복사</span>
+                </div>
+                <p className="text-[11px] text-ink-500 leading-relaxed mb-3">
+                  이메일, 비밀번호, 성명, 휴대폰, 주소, 포인트 컬럼이 포함된 테이블 생성 SQL을 즉시 복사합니다.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <button
+                  onClick={() => {
+                    const sql = `-- 전주이씨(JEONJU LEE) 회원가입 테이블 생성 SQL
+CREATE TABLE IF NOT EXISTS public.members (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    name TEXT NOT NULL,
+    phone TEXT DEFAULT '',
+    postal_code TEXT DEFAULT '',
+    address TEXT DEFAULT '',
+    detail_address TEXT DEFAULT '',
+    points INTEGER NOT NULL DEFAULT 5000,
+    membership_grade TEXT NOT NULL DEFAULT '전주이씨 가문회원',
+    role TEXT NOT NULL DEFAULT 'customer',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.members DISABLE ROW LEVEL SECURITY;`;
+                    navigator.clipboard.writeText(sql);
+                    showToast('회원가입(members) SQL이 복사되었습니다! Supabase SQL Editor에 붙여넣고 Run을 누르세요.');
+                  }}
+                  className="w-full py-2 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-medium rounded-sm transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>회원가입 SQL 복사하기</span>
+                </button>
+                <a
+                  href="https://supabase.com/dashboard/project/bjofkwwzeapgjahsjdzb/sql/new"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-1.5 text-center text-ink-700 hover:text-ink-900 text-[11px] flex items-center justify-center gap-1 underline underline-offset-2"
+                >
+                  <span>Supabase SQL Editor 열기</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+
             {/* Sync Seed Data */}
             <div className="p-3.5 bg-paper-50 border border-paper-300 rounded-sm flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 font-medium text-ink-900 text-xs mb-1">
                   <UploadCloud className="w-4 h-4 text-bronze" />
-                  <span>전주이씨 데이터 주입</span>
+                  <span>전주이씨 전체 데이터 주입</span>
                 </div>
                 <p className="text-[11px] text-ink-500 leading-relaxed mb-3">
                   상품 12종, 원자재 목록, 발주서, 전자세금계산서, 게시판 데이터를 Supabase DB에 밀어 넣습니다.
                 </p>
               </div>
-              <button
-                onClick={handleSyncData}
-                disabled={syncing || !configured}
-                className="w-full py-2 bg-paper-200 hover:bg-paper-300 text-ink-900 text-xs font-medium rounded-sm border border-paper-300 transition-colors disabled:opacity-40"
-              >
-                {syncing ? '데이터 동기화 중...' : '원클릭 DB 데이터 주입'}
-              </button>
-            </div>
-
-            {/* Copy Schema */}
-            <div className="p-3.5 bg-paper-50 border border-paper-300 rounded-sm flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-2 font-medium text-ink-900 text-xs mb-1">
-                  <Layers className="w-4 h-4 text-bronze" />
-                  <span>11개 테이블 SQL 스키마</span>
-                </div>
-                <p className="text-[11px] text-ink-500 leading-relaxed mb-3">
-                  `supabase/schema.sql` (profiles, products, orders, reviews, points_ledger 등 11개 테이블).
-                </p>
+              <div className="space-y-1.5">
+                <button
+                  onClick={handleSyncData}
+                  disabled={syncing || !configured}
+                  className="w-full py-2 bg-paper-200 hover:bg-paper-300 text-ink-900 text-xs font-medium rounded-sm border border-paper-300 transition-colors disabled:opacity-40"
+                >
+                  {syncing ? '데이터 동기화 중...' : '원클릭 DB 데이터 주입'}
+                </button>
+                <a
+                  href="https://supabase.com/dashboard/project/bjofkwwzeapgjahsjdzb/editor"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-1.5 text-center text-ink-700 hover:text-ink-900 text-[11px] flex items-center justify-center gap-1 underline underline-offset-2"
+                >
+                  <span>Supabase Table Editor 열기</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
-              <button
-                onClick={handleCopySchemaNotice}
-                className="w-full py-2 bg-paper-200 hover:bg-paper-300 text-ink-900 text-xs font-medium rounded-sm border border-paper-300 transition-colors flex items-center justify-center gap-1.5"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span>{isCopied ? '복사 완료!' : '스키마 파일 경로 안내'}</span>
-              </button>
             </div>
           </div>
         </div>
