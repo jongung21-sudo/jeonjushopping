@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Search, X, ArrowRight, TrendingUp } from 'lucide-react';
-import { PRODUCTS } from '../../data/products';
+import { useProducts } from '../../context/ProductContext';
 import { Product } from '../../types';
 
 interface SearchModalProps {
@@ -26,19 +26,20 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   onSelectProduct,
   onNavigateToShop,
 }) => {
+  const { products } = useProducts();
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredProducts = useMemo(() => {
     if (!searchTerm.trim()) return [];
     const term = searchTerm.toLowerCase().trim();
-    return PRODUCTS.filter(
+    return products.filter(
       (p) =>
         p.name.toLowerCase().includes(term) ||
         p.engName.toLowerCase().includes(term) ||
         p.shortDesc.toLowerCase().includes(term) ||
         p.category.toLowerCase().includes(term)
     );
-  }, [searchTerm]);
+  }, [searchTerm, products]);
 
   if (!isOpen) return null;
 
@@ -178,7 +179,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                   NOW POPULAR
                 </h4>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  {PRODUCTS.filter((p) => p.isBest).slice(0, 4).map((product) => (
+                  {products.filter((p) => p.isBest).slice(0, 4).map((product) => (
                     <div
                       key={product.id}
                       onClick={() => {

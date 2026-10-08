@@ -29,7 +29,7 @@ interface MyPageProps {
 
 export const MyPage: React.FC<MyPageProps> = ({ navigate, onSelectProduct }) => {
   const { user, isLoggedIn, logout, orders, pointHistory } = useAuth();
-  const { wishlistIds } = useWishlist();
+  const { wishlistIds, removeFromWishlist, wishlistProducts } = useWishlist();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'orders' | 'points' | 'wishlist' | 'inquiries'>('orders');
@@ -60,8 +60,6 @@ export const MyPage: React.FC<MyPageProps> = ({ navigate, onSelectProduct }) => 
     배송중: orders.filter((o) => o.status === '배송중').length,
     배송완료: orders.filter((o) => o.status === '배송완료' || o.status === '구매확정').length,
   };
-
-  const wishlistProducts = PRODUCTS.filter((p) => wishlistIds.includes(p.id));
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 animate-fade-in font-serif-kr">

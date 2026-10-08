@@ -11,6 +11,7 @@ import { SearchModal } from './components/common/SearchModal';
 import { QuickViewModal } from './components/common/QuickViewModal';
 import { ChatbotModal } from './components/common/ChatbotModal';
 import { PRODUCTS } from './data/products';
+import { ProductProvider, useProducts } from './context/ProductContext';
 import { Product, ProductCategory } from './types';
 
 // Pages
@@ -34,6 +35,7 @@ import { LegalPage } from './pages/LegalPage';
 import { AdminPage } from './pages/AdminPage';
 
 export const AppContent: React.FC = () => {
+  const { products } = useProducts();
   const [currentPath, setCurrentPath] = useState<string>(() => {
     return window.location.pathname || '/';
   });
@@ -41,14 +43,7 @@ export const AppContent: React.FC = () => {
   const [searchParamCategory, setSearchParamCategory] = useState<ProductCategory>('ALL');
   const [searchParamQuery, setSearchParamQuery] = useState<string>('');
 
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(() => {
-    const path = window.location.pathname;
-    if (path.startsWith('/product/')) {
-      const id = path.replace('/product/', '');
-      return PRODUCTS.find((p) => p.id === id) || PRODUCTS[0];
-    }
-    return null;
-  });
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
@@ -67,14 +62,14 @@ export const AppContent: React.FC = () => {
 
       if (path.startsWith('/product/')) {
         const id = path.replace('/product/', '');
-        const found = PRODUCTS.find((p) => p.id === id);
+        const found = products.find((p) => p.id === id);
         if (found) setSelectedProduct(found);
       }
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [products]);
 
   const navigate = (fullUrl: string) => {
     const [pathPart, queryPart] = fullUrl.split('?');
@@ -107,7 +102,7 @@ export const AppContent: React.FC = () => {
   const renderRoute = () => {
     if (currentPath.startsWith('/product/')) {
       const prodId = currentPath.replace('/product/', '');
-      const current = selectedProduct || PRODUCTS.find((p) => p.id === prodId) || PRODUCTS[0];
+      const current = selectedProduct || products.find((p) => p.id === prodId) || products[0] || PRODUCTS[0];
       return (
         <ProductDetailPage
           product={current}
@@ -260,11 +255,13 @@ export default function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <WishlistProvider>
-          <CartProvider>
-            <AppContent />
-          </CartProvider>
-        </WishlistProvider>
+        <ProductProvider>
+          <WishlistProvider>
+            <CartProvider>
+              <AppContent />
+            </CartProvider>
+          </WishlistProvider>
+        </ProductProvider>
       </AuthProvider>
     </ToastProvider>
   );

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Product, ProductColor, ProductReview } from '../types';
-import { PRODUCTS } from '../data/products';
+import { useProducts } from '../context/ProductContext';
 import { REVIEWS_POOL } from '../data/mockData';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
@@ -58,6 +58,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const { addToCart } = useCart();
   const { isInWishlist, toggleWishlist } = useWishlist();
   const { showToast } = useToast();
+  const { products } = useProducts();
   const isWish = isInWishlist(product.id);
 
   // Review & Q&A Modal States
@@ -161,7 +162,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     showToast('이 후기가 도움이 되었다고 평가해 주셨습니다.');
   };
 
-  const relatedProducts = PRODUCTS.filter(
+  const relatedProducts = products.filter(
     (p) => p.category === product.category && p.id !== product.id
   ).slice(0, 4);
 

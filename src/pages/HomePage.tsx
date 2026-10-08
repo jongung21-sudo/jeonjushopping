@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { PRODUCTS } from '../data/products';
+import { useProducts } from '../context/ProductContext';
 import { INSTAGRAM_POSTS } from '../data/mockData';
 import { ProductCard } from '../components/common/ProductCard';
 import { Product } from '../types';
@@ -17,9 +17,10 @@ export const HomePage: React.FC<HomePageProps> = ({
   onSelectProduct,
   onQuickView,
 }) => {
+  const { products } = useProducts();
   const heroRef = useRef<HTMLElement | null>(null);
-  const newProducts = PRODUCTS.filter((p) => p.isNew).slice(0, 4);
-  const bestProducts = PRODUCTS.filter((p) => p.isBest).slice(0, 4);
+  const newProducts = products.filter((p) => p.isNew).slice(0, 4);
+  const bestProducts = products.filter((p) => p.isBest).slice(0, 4);
 
   return (
     <div className="space-y-20 md:space-y-32">

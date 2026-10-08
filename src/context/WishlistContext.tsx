@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useToast } from './ToastContext';
-import { PRODUCTS } from '../data/products';
+import { useProducts } from './ProductContext';
 import { Product } from '../types';
 
 interface WishlistContextType {
@@ -17,6 +17,7 @@ const WISHLIST_STORAGE_KEY = 'jeonju_lee_wishlist_v1';
 
 export const WishlistProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { showToast } = useToast();
+  const { products } = useProducts();
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(WISHLIST_STORAGE_KEY);
@@ -33,7 +34,7 @@ export const WishlistProvider: React.FC<{ children: ReactNode }> = ({ children }
   const isInWishlist = (productId: string) => wishlistIds.includes(productId);
 
   const toggleWishlist = (productId: string) => {
-    const product = PRODUCTS.find((p) => p.id === productId);
+    const product = products.find((p) => p.id === productId);
     const prodName = product ? product.name : '상품';
 
     if (isInWishlist(productId)) {
@@ -54,7 +55,7 @@ export const WishlistProvider: React.FC<{ children: ReactNode }> = ({ children }
     setWishlistIds([]);
   };
 
-  const wishlistProducts = PRODUCTS.filter((p) => wishlistIds.includes(p.id));
+  const wishlistProducts = products.filter((p) => wishlistIds.includes(p.id));
 
   return (
     <WishlistContext.Provider

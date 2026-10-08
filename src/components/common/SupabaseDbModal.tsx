@@ -20,6 +20,7 @@ import {
   UploadCloud,
   Layers,
   Key,
+  ShoppingBag,
 } from 'lucide-react';
 
 interface SupabaseDbModalProps {
@@ -290,9 +291,9 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
         {/* Database Quick Actions */}
         <div className="mt-6 pt-5 border-t border-paper-300">
           <h3 className="text-xs font-semibold text-ink-900 uppercase tracking-wider mb-3">
-            회원가입 테이블 생성 및 데이터베이스 관리
+            데이터베이스 테이블 및 데이터 관리
           </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             {/* Copy Members Table SQL */}
             <div className="p-3.5 bg-paper-50 border border-bronze/40 rounded-sm flex flex-col justify-between">
               <div>
@@ -439,6 +440,111 @@ ON CONFLICT (id) DO UPDATE SET
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>보안 강화 SQL 복사하기</span>
+                </button>
+                <a
+                  href="https://supabase.com/dashboard/project/bjofkwwzeapgjahsjdzb/sql/new"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-1.5 text-center text-ink-700 hover:text-ink-900 text-[11px] flex items-center justify-center gap-1 underline underline-offset-2"
+                >
+                  <span>Supabase SQL Editor 열기</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+
+            {/* Copy Products Table SQL */}
+            <div className="p-3.5 bg-paper-50 border border-lacquer/40 rounded-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 font-medium text-ink-900 text-xs mb-1">
+                  <ShoppingBag className="w-4 h-4 text-lacquer" />
+                  <span className="font-bold">상품(products) SQL 복사</span>
+                </div>
+                <p className="text-[11px] text-ink-500 leading-relaxed mb-3">
+                  관리자 페이지의 상품 등록/수정/삭제/재고 관리를 지원하는 Supabase products 테이블 및 RLS 권한 SQL입니다.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <button
+                  onClick={() => {
+                    const sql = `-- 전주이씨 (JEONJU LEE) 상품(products) 마스터 테이블 생성 및 권한 설정 SQL
+CREATE TABLE IF NOT EXISTS public.products (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    eng_name TEXT DEFAULT '',
+    category TEXT NOT NULL,
+    price INTEGER NOT NULL CHECK (price >= 0),
+    original_price INTEGER DEFAULT NULL,
+    is_new BOOLEAN DEFAULT false,
+    is_best BOOLEAN DEFAULT false,
+    is_sold_out BOOLEAN DEFAULT false,
+    colors JSONB DEFAULT '[]'::jsonb,
+    sizes TEXT[] DEFAULT ARRAY[]::text[],
+    images TEXT[] DEFAULT ARRAY[]::text[],
+    thumbnail TEXT DEFAULT '',
+    short_desc TEXT DEFAULT '',
+    detail_desc TEXT DEFAULT '',
+    fabric TEXT DEFAULT '',
+    fit TEXT DEFAULT '',
+    care TEXT[] DEFAULT ARRAY[]::text[],
+    stock INTEGER DEFAULT 30 CHECK (stock >= 0),
+    rating NUMERIC(2,1) DEFAULT 5.0,
+    review_count INTEGER DEFAULT 0,
+    sales_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 30;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE INDEX IF NOT EXISTS idx_products_category ON public.products (category);
+CREATE INDEX IF NOT EXISTS idx_products_created_at ON public.products (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_products_price ON public.products (price);
+
+CREATE OR REPLACE FUNCTION public.handle_products_updated_at()
+RETURNS TRIGGER 
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    NEW.updated_at := now();
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_products_updated_at ON public.products;
+CREATE TRIGGER trg_products_updated_at
+BEFORE UPDATE ON public.products
+FOR EACH ROW
+EXECUTE FUNCTION public.handle_products_updated_at();
+
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "products_select_policy" ON public.products;
+CREATE POLICY "products_select_policy" ON public.products 
+FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "products_insert_policy" ON public.products;
+CREATE POLICY "products_insert_policy" ON public.products 
+FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "products_update_policy" ON public.products;
+CREATE POLICY "products_update_policy" ON public.products 
+FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "products_delete_policy" ON public.products;
+CREATE POLICY "products_delete_policy" ON public.products 
+FOR DELETE TO anon, authenticated USING (true);
+
+GRANT ALL ON public.products TO anon, authenticated, service_role;`;
+                    navigator.clipboard.writeText(sql);
+                    showToast('상품 테이블(products) SQL이 복사되었습니다! Supabase SQL Editor에 붙여넣고 Run을 누르세요.');
+                  }}
+                  className="w-full py-2 bg-lacquer hover:bg-lacquer/90 text-paper-100 text-xs font-medium rounded-sm transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>상품 테이블 SQL 복사하기</span>
                 </button>
                 <a
                   href="https://supabase.com/dashboard/project/bjofkwwzeapgjahsjdzb/sql/new"

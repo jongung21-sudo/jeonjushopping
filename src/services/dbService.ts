@@ -306,33 +306,204 @@ export const dbService = {
     }
   },
 
-  // 상품 목록 조회
+  // 상품 목록 조회 (Supabase products 테이블)
   async fetchProducts(): Promise<Product[] | null> {
     if (!isSupabaseConfigured()) return null;
     try {
       const client = getSupabaseClient();
-      const { data, error } = await client.from('products').select('*');
+      const { data, error } = await client.from('products').select('*').order('created_at', { ascending: false });
       if (error || !data || data.length === 0) return null;
       return (data as any[]).map((d: any) => {
-        const fallback = PRODUCTS.find((p) => p.id === d.id) || PRODUCTS[0];
+        const fallback = PRODUCTS.find((p) => p.id === d.id);
+        const images = Array.isArray(d.images) && d.images.length > 0 
+          ? d.images 
+          : (d.thumbnail ? [d.thumbnail] : (fallback?.images || ['https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1200&q=80']));
+        const colors = Array.isArray(d.colors) && d.colors.length > 0 
+          ? d.colors 
+          : (fallback?.colors || [{ name: '기본 (Default)', code: '#121212' }]);
+        const sizes = Array.isArray(d.sizes) && d.sizes.length > 0 
+          ? d.sizes 
+          : (fallback?.sizes || ['M', 'L', 'XL']);
+
         return {
-          ...fallback,
           id: d.id,
           name: d.name,
-          engName: d.eng_name || fallback.engName,
-          category: d.category || fallback.category,
-          price: d.price || fallback.price,
-          originalPrice: d.original_price,
-          isNew: d.is_new,
-          isBest: d.is_best,
-          isSoldOut: d.is_sold_out,
-          shortDesc: d.short_desc || fallback.shortDesc,
-          detailDesc: d.description || fallback.detailDesc,
-          fabric: d.material || fallback.fabric,
+          engName: d.eng_name || fallback?.engName || d.name,
+          category: d.category || fallback?.category || 'LIFESTYLE',
+          price: Number(d.price) || 0,
+          originalPrice: d.original_price ? Number(d.original_price) : undefined,
+          isNew: Boolean(d.is_new),
+          isBest: Boolean(d.is_best),
+          isSoldOut: Boolean(d.is_sold_out),
+          colors,
+          sizes,
+          images,
+          thumbnail: d.thumbnail || images[0],
+          shortDesc: d.short_desc || fallback?.shortDesc || '전주이씨 가문의 기품을 담은 컬렉션',
+          detailDesc: d.detail_desc || d.description || fallback?.detailDesc || d.name,
+          fabric: d.fabric || d.material || fallback?.fabric || '프리미엄 소재',
+          fit: d.fit || fallback?.fit || '릴렉스드 핏',
+          care: Array.isArray(d.care) ? d.care : (fallback?.care || ['전문 드라이클리닝 권장']),
+          rating: Number(d.rating) || 5.0,
+          reviewCount: Number(d.review_count) || 0,
+          salesCount: Number(d.sales_count) || 0,
+          createdAt: d.created_at ? new Date(d.created_at).toISOString().slice(0, 10) : '2026-03-01',
         };
       });
     } catch {
       return null;
+    }
+  },
+
+  // 1. 신규 상품 등록 (Supabase products 테이블 insert)
+  async createProduct(product: Product): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, message: 'Supabase가 설정되지 않았습니다. (로컬에만 저장됩니다)' };
+    }
+    try {
+      const client = getSupabaseClient();
+      const payload = {
+        id: product.id,
+        name: product.name,
+        eng_name: product.engName || '',
+        category: product.category,
+        price: product.price,
+        original_price: product.originalPrice || null,
+        is_new: Boolean(product.isNew),
+        is_best: Boolean(product.isBest),
+        is_sold_out: Boolean(product.isSoldOut),
+        colors: product.colors || [],
+        sizes: product.sizes || [],
+        images: product.images || [],
+        thumbnail: product.thumbnail || product.images?.[0] || '',
+        short_desc: product.shortDesc || '',
+        detail_desc: product.detailDesc || '',
+        fabric: product.fabric || '',
+        fit: product.fit || '',
+        care: product.care || [],
+        stock: 30,
+        rating: product.rating || 5.0,
+        review_count: product.reviewCount || 0,
+        sales_count: product.salesCount || 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await client.from('products').insert([payload]);
+      if (error) {
+        console.error('Supabase createProduct error:', error);
+        return { success: false, message: `등록 실패: ${error.message}` };
+      }
+      return { success: true, message: '상품이 Supabase 클라우드 DB에 성공적으로 등록되었습니다.' };
+    } catch (e: any) {
+      console.error('Supabase createProduct exception:', e);
+      return { success: false, message: `등록 오류: ${e?.message || '네트워크 오류'}` };
+    }
+  },
+
+  // 2. 상품 정보 수정 (Supabase products 테이블 update)
+  async updateProduct(id: string, updates: Partial<Product>): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, message: 'Supabase가 설정되지 않았습니다. (로컬에만 반영됩니다)' };
+    }
+    try {
+      const client = getSupabaseClient();
+      const payload: any = {
+        updated_at: new Date().toISOString(),
+      };
+      if (updates.name !== undefined) payload.name = updates.name;
+      if (updates.engName !== undefined) payload.eng_name = updates.engName;
+      if (updates.category !== undefined) payload.category = updates.category;
+      if (updates.price !== undefined) payload.price = updates.price;
+      if (updates.originalPrice !== undefined) payload.original_price = updates.originalPrice;
+      if (updates.isNew !== undefined) payload.is_new = updates.isNew;
+      if (updates.isBest !== undefined) payload.is_best = updates.isBest;
+      if (updates.isSoldOut !== undefined) payload.is_sold_out = updates.isSoldOut;
+      if (updates.colors !== undefined) payload.colors = updates.colors;
+      if (updates.sizes !== undefined) payload.sizes = updates.sizes;
+      if (updates.images !== undefined) {
+        payload.images = updates.images;
+        if (!payload.thumbnail && updates.images.length > 0) payload.thumbnail = updates.images[0];
+      }
+      if (updates.thumbnail !== undefined) payload.thumbnail = updates.thumbnail;
+      if (updates.shortDesc !== undefined) payload.short_desc = updates.shortDesc;
+      if (updates.detailDesc !== undefined) payload.detail_desc = updates.detailDesc;
+      if (updates.fabric !== undefined) payload.fabric = updates.fabric;
+      if (updates.fit !== undefined) payload.fit = updates.fit;
+      if (updates.care !== undefined) payload.care = updates.care;
+
+      const { error } = await client.from('products').update(payload).eq('id', id);
+      if (error) {
+        console.error('Supabase updateProduct error:', error);
+        return { success: false, message: `수정 실패: ${error.message}` };
+      }
+      return { success: true, message: '상품 정보가 Supabase에 수정되었습니다.' };
+    } catch (e: any) {
+      console.error('Supabase updateProduct exception:', e);
+      return { success: false, message: `수정 오류: ${e?.message || '네트워크 오류'}` };
+    }
+  },
+
+  // 3. 상품 삭제 (Supabase products 테이블 delete)
+  async deleteProduct(id: string): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, message: 'Supabase가 설정되지 않았습니다. (로컬에서만 삭제됩니다)' };
+    }
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.from('products').delete().eq('id', id);
+      if (error) {
+        console.error('Supabase deleteProduct error:', error);
+        return { success: false, message: `삭제 실패: ${error.message}` };
+      }
+      return { success: true, message: '상품이 Supabase에서 삭제되었습니다.' };
+    } catch (e: any) {
+      console.error('Supabase deleteProduct exception:', e);
+      return { success: false, message: `삭제 오류: ${e?.message || '네트워크 오류'}` };
+    }
+  },
+
+  // 4. 상품 전체를 Supabase에 일괄 주입
+  async syncAllProductsToSupabase(products: Product[]): Promise<{ success: boolean; count: number; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, count: 0, message: 'Supabase가 설정되지 않았습니다.' };
+    }
+    try {
+      const client = getSupabaseClient();
+      const payloads = products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        eng_name: p.engName || '',
+        category: p.category,
+        price: p.price,
+        original_price: p.originalPrice || null,
+        is_new: Boolean(p.isNew),
+        is_best: Boolean(p.isBest),
+        is_sold_out: Boolean(p.isSoldOut),
+        colors: p.colors || [],
+        sizes: p.sizes || [],
+        images: p.images || [],
+        thumbnail: p.thumbnail || p.images?.[0] || '',
+        short_desc: p.shortDesc || '',
+        detail_desc: p.detailDesc || '',
+        fabric: p.fabric || '',
+        fit: p.fit || '',
+        care: p.care || [],
+        stock: 30,
+        rating: p.rating || 5.0,
+        review_count: p.reviewCount || 0,
+        sales_count: p.salesCount || 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+
+      const { error } = await client.from('products').upsert(payloads, { onConflict: 'id' });
+      if (error) {
+        return { success: false, count: 0, message: `일괄 업로드 실패: ${error.message}` };
+      }
+      return { success: true, count: payloads.length, message: `${payloads.length}개 상품이 Supabase에 성공적으로 업로드되었습니다.` };
+    } catch (e: any) {
+      return { success: false, count: 0, message: `업로드 오류: ${e?.message || '통신 실패'}` };
     }
   },
 

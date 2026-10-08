@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { PRODUCTS, CATEGORIES_CONFIG } from '../data/products';
+import { CATEGORIES_CONFIG } from '../data/products';
+import { useProducts } from '../context/ProductContext';
 import { ProductCard } from '../components/common/ProductCard';
 import { Product, ProductCategory } from '../types';
 import { SlidersHorizontal, X, RotateCcw, ChevronDown } from 'lucide-react';
@@ -19,6 +20,7 @@ export const ShopPage: React.FC<ShopPageProps> = ({
   onSelectProduct,
   onQuickView,
 }) => {
+  const { products } = useProducts();
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory>(initialCategory);
   const [sortOption, setSortOption] = useState<SortOption>('RECOMMENDED');
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
@@ -54,7 +56,7 @@ export const ShopPage: React.FC<ShopPageProps> = ({
   };
 
   const filteredAndSortedProducts = useMemo(() => {
-    let result = [...PRODUCTS];
+    let result = [...products];
 
     // Search query
     if (searchQuery.trim()) {
