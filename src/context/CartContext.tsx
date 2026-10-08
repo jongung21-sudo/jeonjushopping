@@ -155,8 +155,9 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const couponDiscount = useMemo(() => {
     if (!appliedCoupon || totalProductPrice === 0) return 0;
-    if (totalProductPrice < appliedCoupon.minOrderPrice) return 0;
-    if (appliedCoupon.discountType === 'PERCENT') {
+    const minPrice = appliedCoupon.minOrderPrice ?? appliedCoupon.minOrderAmount ?? 0;
+    if (totalProductPrice < minPrice) return 0;
+    if (appliedCoupon.discountType === 'PERCENT' || appliedCoupon.discountType === 'percentage') {
       return Math.round((totalProductPrice * appliedCoupon.discountValue) / 100);
     }
     return appliedCoupon.discountValue;
@@ -187,15 +188,16 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       showToast('유효하지 않은 쿠폰 코드입니다.', 'error');
       return false;
     }
-    if (totalProductPrice < found.minOrderPrice) {
+    const minPrice = found.minOrderPrice ?? found.minOrderAmount ?? 0;
+    if (totalProductPrice < minPrice) {
       showToast(
-        `이 쿠폰은 ${found.minOrderPrice.toLocaleString()}원 이상 구매 시 사용 가능합니다.`,
+        `이 쿠폰은 ${minPrice.toLocaleString()}원 이상 구매 시 사용 가능합니다.`,
         'error'
       );
       return false;
     }
     setAppliedCoupon(found);
-    showToast(`'${found.title}' 쿠폰이 적용되었습니다.`, 'success');
+    showToast(`'${found.title || found.name}' 쿠폰이 적용되었습니다.`, 'success');
     return true;
   };
 

@@ -15,9 +15,10 @@ export const Logo: React.FC<LogoProps> = ({
 }) => {
   const logoSrc = inverted ? '/logo-calligraphy-white.png' : '/logo-calligraphy.png';
   const subColor = inverted ? 'text-paper-300' : 'text-ink-600';
-  const sealColor = inverted ? 'text-lacquer-light border-lacquer-light/60 bg-lacquer-dark/30' : 'text-lacquer border-lacquer/80 bg-lacquer/5';
+  const sealColor = inverted 
+    ? 'text-lacquer-light border-lacquer-light/60 bg-lacquer-dark/30' 
+    : 'text-lacquer border-lacquer/80 bg-lacquer/5';
 
-  // Height configurations for the calligraphy image (aspect ratio is ~1.95:1)
   const sizeClasses = {
     sm: {
       imgHeight: 'h-6 sm:h-7',
@@ -45,7 +46,7 @@ export const Logo: React.FC<LogoProps> = ({
     },
   }[size];
 
-  // Symbol seal icon (조선 왕실 인장 느낌의 모던 낙관)
+  // 조선 왕실 인장 느낌의 모던 낙관 (全州李氏)
   const SealMark = () => (
     <div
       className={`inline-flex items-center justify-center border ${sealColor} ${sizeClasses.symbol} font-serif select-none transition-transform hover:rotate-3 flex-shrink-0`}

@@ -9,6 +9,8 @@ import { Footer } from './components/common/Footer';
 import { MobileBottomBar } from './components/common/MobileBottomBar';
 import { SearchModal } from './components/common/SearchModal';
 import { QuickViewModal } from './components/common/QuickViewModal';
+import { ChatbotModal } from './components/common/ChatbotModal';
+import { KoreanDragonCursor } from './components/common/KoreanDragonCursor';
 import { PRODUCTS } from './data/products';
 import { Product, ProductCategory } from './types';
 
@@ -20,9 +22,11 @@ import { CartPage } from './pages/CartPage';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { LoginPage } from './pages/LoginPage';
 import { SignUpPage } from './pages/SignUpPage';
+import { FindAccountPage } from './pages/FindAccountPage';
 import { MyPage } from './pages/MyPage';
 import { OrderHistoryPage } from './pages/OrderHistoryPage';
 import { WishlistPage } from './pages/WishlistPage';
+import { CommunityPage } from './pages/CommunityPage';
 import { BrandStoryPage } from './pages/BrandStoryPage';
 import { NoticePage } from './pages/NoticePage';
 import { FaqPage } from './pages/FaqPage';
@@ -39,7 +43,6 @@ export const AppContent: React.FC = () => {
   const [searchParamQuery, setSearchParamQuery] = useState<string>('');
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(() => {
-    // If URL is /product/:id, pre-select
     const path = window.location.pathname;
     if (path.startsWith('/product/')) {
       const id = path.replace('/product/', '');
@@ -51,7 +54,7 @@ export const AppContent: React.FC = () => {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
 
-  // Sync state with popstate (browser back/forward buttons)
+  // 브라우저 뒤로가기/앞으로가기 동기화
   useEffect(() => {
     const handlePopState = () => {
       const path = window.location.pathname;
@@ -85,7 +88,6 @@ export const AppContent: React.FC = () => {
     setSearchParamCategory(cat);
     setSearchParamQuery(q);
 
-    // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -102,9 +104,8 @@ export const AppContent: React.FC = () => {
     navigate(`/shop?q=${encodeURIComponent(query)}`);
   };
 
-  // Route Resolver
+  // 라우터 분기
   const renderRoute = () => {
-    // Product Detail
     if (currentPath.startsWith('/product/')) {
       const prodId = currentPath.replace('/product/', '');
       const current = selectedProduct || PRODUCTS.find((p) => p.id === prodId) || PRODUCTS[0];
@@ -118,7 +119,6 @@ export const AppContent: React.FC = () => {
       );
     }
 
-    // Category redirect to shop
     if (currentPath.startsWith('/category/')) {
       const cat = currentPath.replace('/category/', '').toUpperCase() as ProductCategory;
       return (
@@ -153,10 +153,18 @@ export const AppContent: React.FC = () => {
         return <LoginPage navigate={navigate} />;
       case '/signup':
         return <SignUpPage navigate={navigate} />;
+      case '/find-account':
+      case '/find-id':
+      case '/find-pw':
+        return <FindAccountPage navigate={navigate} />;
       case '/mypage':
         return <MyPage navigate={navigate} onSelectProduct={handleSelectProduct} />;
       case '/orders':
         return <OrderHistoryPage navigate={navigate} />;
+      case '/community':
+      case '/qna':
+      case '/board':
+        return <CommunityPage navigate={navigate} />;
       case '/wishlist':
         return (
           <WishlistPage
@@ -171,6 +179,7 @@ export const AppContent: React.FC = () => {
       case '/notice':
         return <NoticePage navigate={navigate} />;
       case '/faq':
+      case '/cs':
         return <FaqPage navigate={navigate} />;
       case '/contact':
         return <ContactPage navigate={navigate} />;
@@ -197,8 +206,11 @@ export const AppContent: React.FC = () => {
   const isAdminView = currentPath === '/admin';
 
   return (
-    <div className="min-h-screen flex flex-col bg-paper-100 text-ink-900 font-sans selection:bg-ink-900 selection:text-paper-100">
-      {/* Header */}
+    <div className="min-h-screen flex flex-col bg-paper-100 text-ink-900 font-sans selection:bg-ink-900 selection:text-paper-100 relative">
+      {/* 1. 수묵 비룡 인터랙티브 커서 (조선 왕실 물리엔진) */}
+      <KoreanDragonCursor />
+
+      {/* 2. Header */}
       {!isAdminView && (
         <Header
           currentPath={currentPath}
@@ -207,15 +219,15 @@ export const AppContent: React.FC = () => {
         />
       )}
 
-      {/* Main Content Area */}
+      {/* 3. Main Contents */}
       <main className={`flex-1 ${!isAdminView ? 'pt-16 sm:pt-20' : ''}`}>
         {renderRoute()}
       </main>
 
-      {/* Footer */}
+      {/* 4. Footer */}
       {!isAdminView && <Footer navigate={navigate} />}
 
-      {/* Mobile Sticky Bottom Navigation Bar */}
+      {/* 5. Mobile Sticky Bottom Navigation Bar */}
       {!isAdminView && (
         <MobileBottomBar
           currentPath={currentPath}
@@ -224,7 +236,10 @@ export const AppContent: React.FC = () => {
         />
       )}
 
-      {/* Search Modal */}
+      {/* 6. AI 컨시어지 챗봇 */}
+      {!isAdminView && <ChatbotModal />}
+
+      {/* 7. 검색 모달 */}
       <SearchModal
         isOpen={searchModalOpen}
         onClose={() => setSearchModalOpen(false)}
@@ -232,14 +247,14 @@ export const AppContent: React.FC = () => {
         onNavigateToShop={handleNavigateToShopWithSearch}
       />
 
-      {/* Quick View Modal */}
+      {/* 8. 퀵뷰 모달 */}
       <QuickViewModal
         product={quickViewProduct}
         onClose={() => setQuickViewProduct(null)}
         onViewDetail={handleSelectProduct}
       />
 
-      {/* Toast Notification Container */}
+      {/* 9. 토스트 알림 컨테이너 */}
       <ToastContainer />
     </div>
   );

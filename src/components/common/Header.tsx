@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Search, User, Heart, ShoppingBag, Menu, X, ArrowRight } from 'lucide-react';
+import { Search, User, Heart, ShoppingBag, Menu, X, ArrowRight, Database } from 'lucide-react';
 import { Logo } from './Logo';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useAuth } from '../../context/AuthContext';
+import { isSupabaseConfigured } from '../../lib/supabaseClient';
 
 interface HeaderProps {
   currentPath: string;
@@ -35,6 +36,7 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
     { label: 'COLLECTION', path: '/brand' },
     { label: 'NEW', path: '/shop?category=NEW' },
     { label: 'BEST', path: '/shop?category=BEST' },
+    { label: 'COMMUNITY', path: '/community' },
     { label: 'ABOUT', path: '/brand' },
   ];
 
@@ -103,7 +105,21 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
             </nav>
 
             {/* Right: Actions */}
-            <div className="flex items-center space-x-4 sm:space-x-6">
+            <div className="flex items-center space-x-3 sm:space-x-5">
+              {/* DB Status Badge */}
+              <button
+                onClick={() => handleNavClick('/admin')}
+                className={`hidden md:flex items-center gap-1 px-2 py-0.5 text-[10px] font-sans border transition-colors ${
+                  isSupabaseConfigured()
+                    ? 'border-emerald-300 text-emerald-800 bg-emerald-50'
+                    : 'border-amber-300 text-amber-800 bg-amber-50'
+                }`}
+                title={isSupabaseConfigured() ? 'Supabase 실시간 클라우드 DB 연결됨' : '로컬 브라우저 세이프 모드 (클릭하여 설정)'}
+              >
+                <Database className="w-3 h-3" />
+                <span>{isSupabaseConfigured() ? 'DB 연결됨' : '로컬 모드'}</span>
+              </button>
+
               {/* Search */}
               <button
                 onClick={openSearch}

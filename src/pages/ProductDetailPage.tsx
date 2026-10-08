@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Product, ProductColor } from '../types';
+import { Product, ProductColor, ProductReview } from '../types';
 import { PRODUCTS } from '../data/products';
 import { REVIEWS_POOL } from '../data/mockData';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
+import { dbService } from '../services/dbService';
 import {
   Heart,
   ShoppingBag,
@@ -18,6 +20,10 @@ import {
   ShieldCheck,
   HelpCircle,
   ArrowLeft,
+  Sparkles,
+  ThumbsUp,
+  Camera,
+  X,
 } from 'lucide-react';
 import { ProductCard } from '../components/common/ProductCard';
 
@@ -48,15 +54,30 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     shipping: false,
   });
 
-  // Review modal / tab
-  const [showQnaModal, setShowQnaModal] = useState(false);
-  const [qnaTitle, setQnaTitle] = useState('');
-  const [qnaContent, setQnaContent] = useState('');
-
+  const { user, earnPoints } = useAuth();
   const { addToCart } = useCart();
   const { isInWishlist, toggleWishlist } = useWishlist();
   const { showToast } = useToast();
   const isWish = isInWishlist(product.id);
+
+  // Review & Q&A Modal States
+  const [showQnaModal, setShowQnaModal] = useState(false);
+  const [qnaTitle, setQnaTitle] = useState('');
+  const [qnaContent, setQnaContent] = useState('');
+
+  // 리뷰 작성 모달 상태
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewContent, setReviewContent] = useState('');
+  const [reviewFit, setReviewFit] = useState('정사이즈예요');
+  const [reviewHeightWeight, setReviewHeightWeight] = useState('');
+  const [reviewImage, setReviewImage] = useState('');
+  const [helpfulMap, setHelpfulMap] = useState<{ [id: string]: number }>({});
+
+  const initialProductReviews = REVIEWS_POOL.filter((r) => r.productId === product.id);
+  const [reviewsList, setReviewsList] = useState<any[]>(
+    initialProductReviews.length > 0 ? initialProductReviews : REVIEWS_POOL.slice(0, 3)
+  );
 
   const toggleAccordion = (key: string) => {
     setOpenAccordions((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -87,7 +108,57 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     setShowQnaModal(false);
     setQnaTitle('');
     setQnaContent('');
-    showToast('문의가 정상적으로 접수되었습니다. 답변 완료 시 알림을 보내드립니다.', 'success');
+    showToast('문의가 정상적으로 접수되었습니다. 답변 완료 시 알림을 보내드립니다.');
+  };
+
+  const handleReviewSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reviewContent.trim()) {
+      showToast('리뷰 후기 내용을 작성해 주세요.', 'error');
+      return;
+    }
+
+    const newRev = {
+      id: `rev-${Date.now()}`,
+      productId: product.id,
+      author: user ? user.name : '김*연',
+      rating: reviewRating,
+      date: new Date().toISOString().slice(0, 10),
+      selectedOption: `${selectedColor.name} / ${selectedSize}`,
+      heightWeight: reviewHeightWeight || undefined,
+      content: reviewContent.trim(),
+      images: reviewImage ? [reviewImage] : [],
+      helpfulCount: 0,
+    };
+
+    setReviewsList((prev) => [newRev, ...prev]);
+    earnPoints(1000, '상품 포토/텍스트 리뷰 작성');
+    dbService.addReview({
+      id: newRev.id,
+      productId: product.id,
+      userName: newRev.author,
+      rating: newRev.rating,
+      comment: newRev.content,
+      fitFeedback: reviewFit,
+      images: newRev.images,
+      createdAt: newRev.date,
+      likesCount: 0,
+      helpfulCount: 0,
+    });
+
+    setShowReviewModal(false);
+    setReviewContent('');
+    setReviewImage('');
+    setReviewHeightWeight('');
+    showToast('소중한 후기가 등록되었습니다! 1,000P 마일리지가 즉시 적립되었습니다.');
+  };
+
+  const handleToggleHelpful = (revId: string) => {
+    setHelpfulMap((prev) => ({
+      ...prev,
+      [revId]: (prev[revId] || 0) + 1,
+    }));
+    showToast('이 후기가 도움이 되었다고 평가해 주셨습니다.');
   };
 
   const relatedProducts = PRODUCTS.filter(
@@ -551,26 +622,73 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       <div className="mt-24 pt-16 border-t border-paper-300 max-w-4xl mx-auto">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-paper-300 gap-4">
           <div>
-            <h3 className="text-lg font-serif-kr font-medium text-ink-900">
-              고객 실착 후기 (REVIEWS)
-            </h3>
-            <p className="text-xs text-ink-500 font-sans mt-0.5">
-              실제 착용하신 회원님들의 솔직한 평가입니다.
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-serif-kr font-medium text-ink-900">
+                고객 실착 후기 (REVIEWS)
+              </h3>
+              <span className="text-xs px-2 py-0.5 bg-paper-200 border border-paper-300 text-ink-700 font-sans">
+                {reviewsList.length}건
+              </span>
+            </div>
+            <p className="text-xs text-ink-500 font-serif-kr mt-1">
+              실제 착용하신 회원님들의 솔직한 후기이며, 작성 시 <strong>1,000P 마일리지</strong>를 즉시 지급해 드립니다.
             </p>
           </div>
-          <button
-            onClick={() => setShowQnaModal(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 border border-ink-900 text-xs font-medium text-ink-900 hover:bg-ink-900 hover:text-paper-100 transition-colors"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>1:1 상품 문의 작성</span>
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowReviewModal(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-ink-900 text-paper-100 hover:bg-lacquer text-xs font-serif-kr transition-colors shadow-sm"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-bronze" />
+              <span>리뷰 작성하기 (+1,000P)</span>
+            </button>
+            <button
+              onClick={() => setShowQnaModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-paper-300 text-xs font-serif-kr text-ink-700 hover:border-ink-900 transition-colors"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>1:1 상품 문의</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 평점 요약 바 */}
+        <div className="py-6 px-6 bg-paper-100 border-b border-paper-300 grid grid-cols-1 sm:grid-cols-3 gap-6 items-center">
+          <div className="text-center sm:text-left sm:border-r border-paper-300/80 pr-4">
+            <span className="text-3xl font-bold font-sans text-ink-900">{product.rating}</span>
+            <span className="text-xs text-ink-500 font-sans"> / 5.0</span>
+            <div className="flex justify-center sm:justify-start text-lacquer mt-1">
+              {[...Array(5)].map((_, i) => (
+                <Star key={i} className="w-4 h-4 fill-current" />
+              ))}
+            </div>
+            <p className="text-[11px] text-ink-500 font-serif-kr mt-1">
+              구매 고객의 98%가 만족하셨습니다.
+            </p>
+          </div>
+
+          <div className="sm:col-span-2 space-y-1.5 text-xs font-serif-kr">
+            {[
+              { star: 5, pct: 88 },
+              { star: 4, pct: 10 },
+              { star: 3, pct: 2 },
+            ].map((b) => (
+              <div key={b.star} className="flex items-center gap-2 text-ink-600">
+                <span className="w-8 text-[11px] font-sans">{b.star}점</span>
+                <div className="flex-1 h-2 bg-paper-200 rounded-none overflow-hidden border border-paper-300/60">
+                  <div className="h-full bg-lacquer" style={{ width: `${b.pct}%` }} />
+                </div>
+                <span className="w-8 text-right text-[11px] font-sans text-ink-400">{b.pct}%</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Reviews List */}
         <div className="divide-y divide-paper-300">
-          {(productReviews.length > 0 ? productReviews : REVIEWS_POOL).map((rev) => (
-            <div key={rev.id} className="py-6 space-y-2">
+          {reviewsList.map((rev) => (
+            <div key={rev.id} className="py-6 space-y-3 font-serif-kr">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="flex text-lacquer">
@@ -580,13 +698,50 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   </div>
                   <span className="text-xs font-semibold text-ink-900">{rev.author}</span>
                   {rev.heightWeight && (
-                    <span className="text-[11px] text-ink-400">({rev.heightWeight})</span>
+                    <span className="text-[11px] text-ink-400 font-sans">({rev.heightWeight})</span>
+                  )}
+                  {rev.fitFeedback && (
+                    <span className="px-1.5 py-0.5 bg-paper-200 text-ink-600 text-[10px] border border-paper-300">
+                      {rev.fitFeedback}
+                    </span>
                   )}
                 </div>
                 <span className="text-[11px] text-ink-400 font-sans">{rev.date}</span>
               </div>
-              <p className="text-[11px] text-bronze font-medium">선택 옵션: {rev.selectedOption}</p>
-              <p className="text-xs text-ink-800 font-serif-kr leading-relaxed">{rev.content}</p>
+
+              {rev.selectedOption && (
+                <p className="text-[11px] text-bronze font-medium">
+                  구매 옵션: {rev.selectedOption}
+                </p>
+              )}
+
+              <p className="text-xs text-ink-800 leading-relaxed whitespace-pre-line">
+                {rev.content}
+              </p>
+
+              {rev.images && rev.images.length > 0 && (
+                <div className="flex gap-2 pt-1">
+                  {rev.images.map((img: string, i: number) => (
+                    <img
+                      key={i}
+                      src={img}
+                      alt="고객 착용 사진"
+                      className="w-20 h-20 object-cover border border-paper-300 shadow-sm"
+                    />
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1 text-[11px] text-ink-400">
+                <button
+                  type="button"
+                  onClick={() => handleToggleHelpful(rev.id)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-paper-300 text-ink-600 hover:border-ink-900 transition-colors"
+                >
+                  <ThumbsUp className="w-3 h-3 text-lacquer" />
+                  <span>도움돼요 {(rev.helpfulCount || 0) + (helpfulMap[rev.id] || 0)}</span>
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -664,6 +819,144 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   className="px-5 py-2 bg-ink-900 text-paper-100 text-xs font-medium hover:bg-lacquer transition-colors"
                 >
                   문의 등록
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Review Writing Modal */}
+      {showReviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-ink-900/60 backdrop-blur-sm" onClick={() => setShowReviewModal(false)} />
+          <div className="relative bg-paper-100 max-w-lg w-full p-6 sm:p-8 border border-paper-300 shadow-2xl z-10 animate-fade-in font-serif-kr">
+            <div className="flex items-center justify-between pb-3 border-b border-paper-300 mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-ink-900">
+                  고객 착용 후기 작성
+                </h3>
+                <p className="text-xs text-lacquer mt-0.5">
+                  &check; 포토/텍스트 후기 작성 시 <strong>1,000P 마일리지</strong> 즉시 적립!
+                </p>
+              </div>
+              <button onClick={() => setShowReviewModal(false)} className="text-ink-400 hover:text-ink-900">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleReviewSubmit} className="space-y-4 text-xs">
+              {/* 별점 선택 */}
+              <div>
+                <label className="block text-ink-800 font-medium mb-1.5">만족도 별점 평가</label>
+                <div className="flex gap-2 text-lacquer">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setReviewRating(s)}
+                      className="p-1 hover:scale-110 transition-transform"
+                    >
+                      <Star
+                        className={`w-6 h-6 ${s <= reviewRating ? 'fill-current text-lacquer' : 'text-paper-300'}`}
+                      />
+                    </button>
+                  ))}
+                  <span className="ml-2 self-center text-xs font-bold text-ink-900 font-sans">
+                    {reviewRating}점 / 5.0
+                  </span>
+                </div>
+              </div>
+
+              {/* 핏감 & 착용 사이즈 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-ink-800 font-medium mb-1">핏감 평가</label>
+                  <select
+                    value={reviewFit}
+                    onChange={(e) => setReviewFit(e.target.value)}
+                    className="w-full bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900"
+                  >
+                    <option value="정사이즈예요">정사이즈예요</option>
+                    <option value="여유있는 릴렉스핏">여유있는 릴렉스핏</option>
+                    <option value="약간 슬림해요">약간 슬림해요</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-ink-800 font-medium mb-1">신장/체중 (선택)</label>
+                  <input
+                    type="text"
+                    value={reviewHeightWeight}
+                    onChange={(e) => setReviewHeightWeight(e.target.value)}
+                    placeholder="예: 182cm / 70kg"
+                    className="w-full bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900"
+                  />
+                </div>
+              </div>
+
+              {/* 후기 내용 */}
+              <div>
+                <label className="block text-ink-800 font-medium mb-1">착용 후기 내용</label>
+                <textarea
+                  rows={4}
+                  required
+                  value={reviewContent}
+                  onChange={(e) => setReviewContent(e.target.value)}
+                  placeholder="원단의 촉감, 마감의 완성도, 실착 핏감 등을 솔직하게 남겨주세요."
+                  className="w-full bg-paper-50 border border-paper-300 p-3 text-ink-900"
+                />
+              </div>
+
+              {/* 포토 첨부 */}
+              <div>
+                <label className="block text-ink-800 font-medium mb-1 flex items-center gap-1">
+                  <Camera className="w-3.5 h-3.5 text-bronze" />
+                  <span>착용 사진 첨부 (이미지 URL 또는 샘플 사진)</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={reviewImage}
+                    onChange={(e) => setReviewImage(e.target.value)}
+                    placeholder="이미지 URL 입력 (https://...)"
+                    className="flex-1 bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900 font-sans"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReviewImage(
+                        'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=600&q=80'
+                      )
+                    }
+                    className="px-3 py-2 bg-paper-200 border border-paper-300 text-[11px] whitespace-nowrap hover:bg-paper-300"
+                  >
+                    샘플 컷
+                  </button>
+                </div>
+                {reviewImage && (
+                  <div className="mt-2">
+                    <img
+                      src={reviewImage}
+                      alt="미리보기"
+                      className="w-16 h-16 object-cover border border-paper-300 shadow-sm"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-paper-300">
+                <button
+                  type="button"
+                  onClick={() => setShowReviewModal(false)}
+                  className="px-4 py-2 border border-paper-300 text-xs text-ink-700 hover:bg-paper-200"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-ink-900 text-paper-100 text-xs font-medium hover:bg-lacquer transition-colors shadow-sm"
+                >
+                  리뷰 등록 (+1,000P 받기)
                 </button>
               </div>
             </form>
