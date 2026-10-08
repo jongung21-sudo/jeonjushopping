@@ -363,6 +363,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setPointHistory((prev) => [newTx, ...prev]);
 
     // Supabase 연동 시도
+    dbService.saveProfile(newUser);
     dbService.recordPointTransaction(newTx);
 
     showToast(`가입을 축하드립니다! 웰컴 5,000P 및 10% 할인 쿠폰이 지급되었습니다.`);

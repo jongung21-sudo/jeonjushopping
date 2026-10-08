@@ -8,10 +8,10 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ====================================================================
--- 2. 회원 프로필 테이블 (auth.users 연동 및 포인트/권한 관리)
+-- 2. 회원 프로필 테이블 (포인트/등급/회원가입 관리)
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS public.profiles (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY,
     email TEXT NOT NULL,
     name TEXT NOT NULL DEFAULT '고객',
     phone TEXT DEFAULT '',

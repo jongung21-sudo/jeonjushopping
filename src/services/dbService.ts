@@ -1,8 +1,9 @@
 import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabaseClient';
-import { Order, ProductReview, BoardPost, MaterialItem, PurchaseOrder, TaxInvoice, PointTransaction } from '../types';
+import { User, Product, Order, ProductReview, BoardPost, MaterialItem, PurchaseOrder, TaxInvoice, PointTransaction } from '../types';
 import { INITIAL_MATERIALS, INITIAL_PURCHASE_ORDERS, INITIAL_TAX_INVOICES, INITIAL_POSTS } from '../data/communityData';
+import { PRODUCTS } from '../data/products';
 
-// 1. 주문 데이터 동기화
+// 1. 데이터베이스 서비스
 export const dbService = {
   // 주문 생성
   async createOrder(order: Order): Promise<boolean> {
@@ -159,6 +160,202 @@ export const dbService = {
     } catch (e) {
       console.warn('Supabase saveTaxInvoice fallback:', e);
       return false;
+    }
+  },
+
+  // 회원 프로필 저장/업데이트 (회원가입, 포인트, 등급)
+  async saveProfile(user: User): Promise<boolean> {
+    if (!isSupabaseConfigured()) return false;
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.from('profiles').upsert([
+        {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          phone: user.phone || '',
+          postal_code: user.postalCode || '',
+          address: user.address || '',
+          detail_address: user.detailAddress || '',
+          points: user.points ?? 5000,
+          membership_grade: user.membershipGrade || '전주이씨 가문회원',
+          role: user.role || 'customer',
+          updated_at: new Date().toISOString(),
+        },
+      ]);
+      return !error;
+    } catch (e) {
+      console.warn('Supabase saveProfile fallback:', e);
+      return false;
+    }
+  },
+
+  // 전체 회원 프로필 조회
+  async fetchProfiles(): Promise<User[] | null> {
+    if (!isSupabaseConfigured()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.from('profiles').select('*');
+      if (error || !data) return null;
+      return data.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        email: d.email,
+        phone: d.phone,
+        postalCode: d.postal_code,
+        address: d.address,
+        detailAddress: d.detail_address,
+        points: d.points,
+        membershipGrade: d.membership_grade,
+        role: d.role,
+        couponCount: 2,
+        ordersCount: 0,
+        createdAt: d.created_at?.slice(0, 10),
+      }));
+    } catch {
+      return null;
+    }
+  },
+
+  // 상품 목록 조회
+  async fetchProducts(): Promise<Product[] | null> {
+    if (!isSupabaseConfigured()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.from('products').select('*');
+      if (error || !data || data.length === 0) return null;
+      return (data as any[]).map((d: any) => {
+        const fallback = PRODUCTS.find((p) => p.id === d.id) || PRODUCTS[0];
+        return {
+          ...fallback,
+          id: d.id,
+          name: d.name,
+          engName: d.eng_name || fallback.engName,
+          category: d.category || fallback.category,
+          price: d.price || fallback.price,
+          originalPrice: d.original_price,
+          isNew: d.is_new,
+          isBest: d.is_best,
+          isSoldOut: d.is_sold_out,
+          shortDesc: d.short_desc || fallback.shortDesc,
+          detailDesc: d.description || fallback.detailDesc,
+          fabric: d.material || fallback.fabric,
+        };
+      });
+    } catch {
+      return null;
+    }
+  },
+
+  // 원클릭 샘플 데이터베이스 동기화 (전주이씨 상품, 자재, 발주, 세금계산서)
+  async syncSeedDataToSupabase(): Promise<{ success: boolean; message: string; counts?: any }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        message: 'Supabase Anon Key가 입력되지 않았습니다. 먼저 키를 설정해 주세요.',
+      };
+    }
+    try {
+      const client = getSupabaseClient();
+      let productCount = 0;
+      let materialCount = 0;
+
+      // 1. 상품 주입
+      const productPayload = PRODUCTS.map((p) => ({
+        id: p.id,
+        name: p.name,
+        eng_name: p.engName || '',
+        category: p.category,
+        price: p.price,
+        original_price: p.originalPrice || null,
+        is_new: Boolean(p.isNew),
+        is_best: Boolean(p.isBest),
+        is_sold_out: Boolean(p.isSoldOut),
+        colors: p.colors || [],
+        sizes: p.sizes || [],
+        images: p.images || [],
+        thumbnail: p.thumbnail || p.images[0] || '',
+        short_desc: p.shortDesc || '',
+        description: p.detailDesc || '',
+        material: p.fabric || '천연 오가닉 소재',
+        stock: 20,
+      }));
+
+      const { error: pErr } = await client.from('products').upsert(productPayload);
+      if (!pErr) productCount = productPayload.length;
+
+      // 2. 원부자재 주입
+      const matPayload = INITIAL_MATERIALS.map((m) => ({
+        id: m.id,
+        code: m.code,
+        name: m.name,
+        category: m.category,
+        current_stock: m.currentStock,
+        safety_stock: m.safeStock,
+        unit: m.unit,
+        unit_price: m.unitCost,
+        supplier: m.supplier,
+        status: m.currentStock <= m.safeStock ? '부족' : '정상',
+      }));
+      const { error: mErr } = await client.from('materials').upsert(matPayload);
+      if (!mErr) materialCount = matPayload.length;
+
+      // 3. 발주서 주입
+      const poPayload = INITIAL_PURCHASE_ORDERS.map((po) => ({
+        id: po.id,
+        po_number: po.poNumber,
+        order_date: po.createdAt,
+        due_date: po.expectedDate,
+        supplier_name: po.supplier,
+        item_name: po.itemName,
+        quantity: po.quantity,
+        unit_price: po.unitCost,
+        total_price: po.totalCost,
+        status: po.status,
+        notes: '',
+      }));
+      await client.from('purchase_orders').upsert(poPayload);
+
+      // 4. 전자세금계산서 주입
+      const taxPayload = INITIAL_TAX_INVOICES.map((t) => ({
+        id: t.id,
+        invoice_number: t.invoiceNumber,
+        order_id: t.orderId,
+        issue_date: t.issueDate,
+        supplier_info: t.supplierInfo,
+        recipient_info: t.recipientInfo,
+        supply_amount: t.supplyAmount,
+        tax_amount: t.taxAmount,
+        total_amount: t.totalAmount,
+        status: t.status,
+      }));
+      await client.from('tax_invoices').upsert(taxPayload);
+
+      // 5. 게시판 샘플 주입
+      const postPayload = INITIAL_POSTS.map((bp) => ({
+        id: bp.id,
+        board_type: bp.boardType,
+        title: bp.title,
+        content: bp.content,
+        author_name: bp.authorName,
+        author_email: bp.authorEmail || '',
+        is_secret: Boolean(bp.isSecret),
+        secret_password: bp.secretPassword || '',
+        status: bp.status,
+        answer: bp.answer || '',
+      }));
+      await client.from('board_posts').upsert(postPayload);
+
+      return {
+        success: true,
+        message: `Supabase 데이터베이스에 데이터 동기화 완료! (상품 ${productCount}개, 원자재 ${materialCount}개 외)`,
+        counts: { products: productCount, materials: materialCount },
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `데이터 주입 실패: ${err?.message || '네트워크 오류'}`,
+      };
     }
   },
 };

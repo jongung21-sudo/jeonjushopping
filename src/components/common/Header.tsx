@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Search, User, Heart, ShoppingBag, Menu, X, ArrowRight, Database } from 'lucide-react';
+import { Search, User, Heart, ShoppingBag, Menu, X, ArrowRight, Database, Sparkles, UserPlus } from 'lucide-react';
 import { Logo } from './Logo';
+import { SignUpModal } from './SignUpModal';
+import { SupabaseDbModal } from './SupabaseDbModal';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useAuth } from '../../context/AuthContext';
@@ -15,6 +17,8 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearch }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [signUpModalOpen, setSignUpModalOpen] = useState(false);
+  const [dbModalOpen, setDbModalOpen] = useState(false);
   const { totalItemCount } = useCart();
   const { wishlistIds } = useWishlist();
   const { isLoggedIn, user } = useAuth();
@@ -105,19 +109,30 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
             </nav>
 
             {/* Right: Actions */}
-            <div className="flex items-center space-x-3 sm:space-x-5">
-              {/* DB Status Badge */}
+            <div className="flex items-center space-x-2.5 sm:space-x-4">
+              {/* DB Status Badge (클릭 시 Supabase DB 관리 모달 오픈) */}
               <button
-                onClick={() => handleNavClick('/admin')}
-                className={`hidden md:flex items-center gap-1 px-2 py-0.5 text-[10px] font-sans border transition-colors ${
+                onClick={() => setDbModalOpen(true)}
+                className={`flex items-center gap-1.5 px-2 py-1 text-[11px] font-sans border transition-colors cursor-pointer rounded-xs shadow-2xs ${
                   isSupabaseConfigured()
-                    ? 'border-emerald-300 text-emerald-800 bg-emerald-50'
-                    : 'border-amber-300 text-amber-800 bg-amber-50'
+                    ? 'border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+                    : 'border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100'
                 }`}
-                title={isSupabaseConfigured() ? 'Supabase 실시간 클라우드 DB 연결됨' : '로컬 브라우저 세이프 모드 (클릭하여 설정)'}
+                title="Supabase 실시간 클라우드 DB 연동 관리 모달 열기"
               >
-                <Database className="w-3 h-3" />
-                <span>{isSupabaseConfigured() ? 'DB 연결됨' : '로컬 모드'}</span>
+                <Database className="w-3.5 h-3.5 text-bronze" />
+                <span className="font-medium">{isSupabaseConfigured() ? 'DB 연결됨' : '로컬 모드'}</span>
+              </button>
+
+              {/* 회원가입 버튼 (참조이미지 헤더란에 회원가입창 열기) */}
+              <button
+                onClick={() => setSignUpModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 bg-ink-900 text-paper-100 hover:bg-lacquer text-xs font-serif-kr transition-all shadow-sm rounded-xs group"
+                title="전주이씨 가문 회원가입 창 열기 (+5,000P 즉시 지급)"
+              >
+                <Sparkles className="w-3 h-3 text-bronze group-hover:rotate-12 transition-transform" />
+                <span className="tracking-wide">회원가입</span>
+                <span className="text-[10px] text-bronze font-sans font-normal ml-0.5">(+5,000P)</span>
               </button>
 
               {/* Search */}
@@ -131,10 +146,16 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
 
               {/* User / My Page (Desktop) */}
               <button
-                onClick={() => handleNavClick(isLoggedIn ? '/mypage' : '/login')}
-                className="hidden sm:flex items-center p-1 text-ink-900 hover:opacity-60 transition-opacity relative"
+                onClick={() => {
+                  if (isLoggedIn) {
+                    handleNavClick('/mypage');
+                  } else {
+                    setSignUpModalOpen(true);
+                  }
+                }}
+                className="flex items-center p-1 text-ink-900 hover:opacity-60 transition-opacity relative"
                 aria-label="마이페이지"
-                title={isLoggedIn ? `${user?.name}님 마이페이지` : '로그인'}
+                title={isLoggedIn ? `${user?.name}님 마이페이지` : '회원가입 / 로그인'}
               >
                 <User className="w-[18px] h-[18px]" strokeWidth={1.5} />
                 {isLoggedIn && (
@@ -225,10 +246,14 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
                       로그인
                     </button>
                     <button
-                      onClick={() => handleNavClick('/signup')}
-                      className="text-xs text-ink-600 hover:text-ink-900"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setSignUpModalOpen(true);
+                      }}
+                      className="text-xs text-ink-600 hover:text-ink-900 flex items-center gap-1"
                     >
-                      회원가입 (3,000P 지급)
+                      <Sparkles className="w-3 h-3 text-bronze" />
+                      <span>회원가입 (5,000P 지급)</span>
                     </button>
                   </div>
                 )}
@@ -324,6 +349,19 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
           </div>
         </div>
       )}
+
+      {/* 회원가입 모달창 */}
+      <SignUpModal
+        isOpen={signUpModalOpen}
+        onClose={() => setSignUpModalOpen(false)}
+        onSwitchToLogin={() => handleNavClick('/login')}
+      />
+
+      {/* Supabase 데이터베이스 관리 모달 */}
+      <SupabaseDbModal
+        isOpen={dbModalOpen}
+        onClose={() => setDbModalOpen(false)}
+      />
     </>
   );
 };
