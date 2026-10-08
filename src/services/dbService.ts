@@ -507,6 +507,70 @@ export const dbService = {
     }
   },
 
+  // 5. 상품 이미지 업로드 (Supabase Storage 버킷 업로드 시도 + 미설정 시 DataURL fallback)
+  async uploadProductImage(
+    file: File,
+    fallbackDataUrl?: string
+  ): Promise<{ success: boolean; url: string; message: string }> {
+    if (!isSupabaseConfigured()) {
+      if (fallbackDataUrl) {
+        return {
+          success: true,
+          url: fallbackDataUrl,
+          message: '로컬 최적화 이미지로 등록되었습니다.',
+        };
+      }
+      return { success: false, url: '', message: 'Supabase가 설정되지 않았습니다.' };
+    }
+
+    try {
+      const client = getSupabaseClient();
+      const ext = file.name.split('.').pop() || 'jpg';
+      const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileName = `products/${Date.now()}_${cleanName}.${ext}`;
+
+      const { error } = await client.storage
+        .from('product-images')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: file.type || 'image/jpeg',
+        });
+
+      if (error) {
+        console.warn('Supabase storage upload failed, using fallback dataUrl:', error.message);
+        if (fallbackDataUrl) {
+          return {
+            success: true,
+            url: fallbackDataUrl,
+            message: '스토리지 버킷 미설정으로 고화질 최적화 이미지(DB 인라인)로 저장되었습니다.',
+          };
+        }
+        return { success: false, url: '', message: error.message };
+      }
+
+      const { data: publicUrlData } = client.storage
+        .from('product-images')
+        .getPublicUrl(fileName);
+
+      return {
+        success: true,
+        url: publicUrlData.publicUrl,
+        message: 'Supabase 스토리지에 이미지가 성공적으로 업로드되었습니다.',
+      };
+    } catch (e: any) {
+      console.warn('Supabase storage exception, using fallback dataUrl:', e);
+      if (fallbackDataUrl) {
+        return {
+          success: true,
+          url: fallbackDataUrl,
+          message: '고화질 최적화 이미지로 등록되었습니다.',
+        };
+      }
+      return { success: false, url: '', message: e?.message || '이미지 업로드 실패' };
+    }
+  },
+
   // 원클릭 샘플 데이터베이스 동기화 (전주이씨 상품, 자재, 발주, 세금계산서)
   async syncSeedDataToSupabase(): Promise<{ success: boolean; message: string; counts?: any }> {
     if (!isSupabaseConfigured()) {

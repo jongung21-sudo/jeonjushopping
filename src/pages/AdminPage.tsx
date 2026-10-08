@@ -7,6 +7,7 @@ import { INITIAL_MATERIALS, INITIAL_PURCHASE_ORDERS, INITIAL_TAX_INVOICES } from
 import { Product, ProductCategory, Order, MaterialItem, PurchaseOrder, TaxInvoice, User, OrderStatus } from '../types';
 import { isSupabaseConfigured, getSupabaseAnonKey, resetSupabaseClient, testSupabaseConnection, getSupabaseUrl } from '../lib/supabaseClient';
 import { dbService } from '../services/dbService';
+import { compressImageFile } from '../utils/imageOptimizer';
 import {
   LayoutDashboard,
   Package,
@@ -33,6 +34,9 @@ import {
   Tag,
   Eye,
   Check,
+  Image as ImageIcon,
+  Star,
+  Upload,
 } from 'lucide-react';
 
 interface AdminPageProps {
@@ -78,6 +82,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
   const [prodFormIsBest, setProdFormIsBest] = useState(false);
   const [prodFormIsSoldOut, setProdFormIsSoldOut] = useState(false);
   const [prodFormImage, setProdFormImage] = useState('');
+  const [prodFormImages, setProdFormImages] = useState<string[]>([]);
+  const [prodImageTab, setProdImageTab] = useState<'FILE' | 'URL' | 'PRESET'>('FILE');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadDragActive, setUploadDragActive] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState('');
   const [prodFormShortDesc, setProdFormShortDesc] = useState('');
   const [prodFormDetailDesc, setProdFormDetailDesc] = useState('');
   const [prodFormFabric, setProdFormFabric] = useState('');
@@ -226,7 +235,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
     setProdFormIsNew(true);
     setProdFormIsBest(false);
     setProdFormIsSoldOut(false);
-    setProdFormImage('https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1200&q=80');
+    const defaultSample = 'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1200&q=80';
+    setProdFormImage(defaultSample);
+    setProdFormImages([defaultSample]);
+    setProdImageTab('FILE');
+    setCustomUrlInput('');
     setProdFormShortDesc('');
     setProdFormDetailDesc('');
     setProdFormFabric('프리미엄 천연 소재');
@@ -248,7 +261,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
     setProdFormIsNew(Boolean(prod.isNew));
     setProdFormIsBest(Boolean(prod.isBest));
     setProdFormIsSoldOut(Boolean(prod.isSoldOut));
-    setProdFormImage(prod.images?.[0] || prod.thumbnail || '');
+    const existingList = prod.images && prod.images.length > 0
+      ? prod.images
+      : prod.thumbnail
+        ? [prod.thumbnail]
+        : ['https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1200&q=80'];
+    setProdFormImages(existingList);
+    setProdFormImage(existingList[0]);
+    setProdImageTab('FILE');
+    setCustomUrlInput('');
     setProdFormShortDesc(prod.shortDesc || '');
     setProdFormDetailDesc(prod.detailDesc || '');
     setProdFormFabric(prod.fabric || '');
@@ -256,6 +277,90 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
     setProdFormSizes(prod.sizes?.join(', ') || 'FREE');
     setProdFormColors(prod.colors?.map((c) => c.name).join(', ') || '');
     setShowProductModal(true);
+  };
+
+  // 이미지 파일 직접 업로드 처리 (드래그앤드롭 / 파일 선택)
+  const handleUploadImageFiles = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+
+    setIsUploadingImage(true);
+    let successCount = 0;
+    const newUrls: string[] = [];
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!file.type.startsWith('image/')) {
+          showToast(`'${file.name}'은(는) 이미지 파일이 아닙니다.`, 'error');
+          continue;
+        }
+
+        try {
+          // 1. 브라우저 캔버스를 통한 고화질 최적화 압축
+          const optimized = await compressImageFile(file, 1400, 1400, 0.84);
+          
+          // 2. Supabase Storage 업로드 시도 (스토리지 버킷 미설정 시 자동 fallback)
+          const uploadRes = await dbService.uploadProductImage(optimized.file, optimized.dataUrl);
+
+          if (uploadRes.success && uploadRes.url) {
+            newUrls.push(uploadRes.url);
+            successCount++;
+          } else {
+            newUrls.push(optimized.dataUrl);
+            successCount++;
+          }
+        } catch (fileErr: any) {
+          console.error('File compression error:', fileErr);
+          showToast(`'${file.name}' 처리 실패`, 'error');
+        }
+      }
+
+      if (newUrls.length > 0) {
+        setProdFormImages((prev) => [...prev, ...newUrls]);
+        setProdFormImage(newUrls[0]);
+        showToast(`${successCount}개의 상품 이미지가 성공적으로 업로드되었습니다!`, 'success');
+      }
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  // 외부 URL 이미지 추가
+  const handleAddCustomUrl = (urlToAdd: string) => {
+    const trimmed = urlToAdd.trim();
+    if (!trimmed) {
+      showToast('이미지 URL을 입력해주세요.', 'error');
+      return;
+    }
+    setProdFormImages((prev) => [...prev, trimmed]);
+    setProdFormImage(trimmed);
+    setCustomUrlInput('');
+    showToast('이미지 URL이 추가되었습니다.');
+  };
+
+  // 등록된 이미지 삭제
+  const handleRemoveFormImage = (indexToRemove: number) => {
+    setProdFormImages((prev) => {
+      const filtered = prev.filter((_, idx) => idx !== indexToRemove);
+      if (filtered.length > 0) {
+        setProdFormImage(filtered[0]);
+      } else {
+        setProdFormImage('');
+      }
+      return filtered;
+    });
+  };
+
+  // 대표 이미지로 설정 (인덱스 0번으로 이동)
+  const handleSetPrimaryImage = (indexToPrimary: number) => {
+    setProdFormImages((prev) => {
+      const selected = prev[indexToPrimary];
+      const rest = prev.filter((_, idx) => idx !== indexToPrimary);
+      const reordered = [selected, ...rest];
+      setProdFormImage(reordered[0]);
+      return reordered;
+    });
+    showToast('대표 상품 이미지로 지정되었습니다.');
   };
 
   // 상품 등록 / 수정 완료 제출
@@ -270,9 +375,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
       return;
     }
 
-    const imageList = prodFormImage.trim()
-      ? [prodFormImage.trim()]
-      : ['https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1200&q=80'];
+    const imageList = prodFormImages.length > 0
+      ? prodFormImages
+      : prodFormImage.trim()
+        ? [prodFormImage.trim()]
+        : ['https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1200&q=80'];
 
     const sizeList = prodFormSizes
       .split(',')
@@ -1905,68 +2012,241 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
                 </div>
               </div>
 
-              {/* 2. 이미지 설정 및 미리보기 */}
+              {/* 2. 상품 이미지 관리 (파일 직접 업로드 / URL 입력 / 프리셋) */}
               <div className="bg-paper-50 p-3.5 border border-paper-300 space-y-3">
-                <h4 className="font-bold text-ink-900 flex items-center gap-1.5 pb-1 border-b border-paper-200 text-xs">
-                  <UploadCloud className="w-3.5 h-3.5 text-lacquer" /> 대표 상품 이미지 URL
-                </h4>
-
-                <div className="flex gap-3 items-center">
-                  <div className="w-20 h-24 bg-paper-200 border border-paper-300 flex-shrink-0 overflow-hidden flex items-center justify-center">
-                    {prodFormImage ? (
-                      <img
-                        src={prodFormImage}
-                        alt="미리보기"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=600&q=80';
-                        }}
-                      />
-                    ) : (
-                      <span className="text-[10px] text-ink-400">미리보기</span>
-                    )}
-                  </div>
-                  <div className="flex-1 space-y-1.5">
-                    <input
-                      type="text"
-                      placeholder="https://images.unsplash.com/... 또는 이미지 URL 입력"
-                      value={prodFormImage}
-                      onChange={(e) => setProdFormImage(e.target.value)}
-                      className="w-full bg-paper-100 border border-paper-300 px-3 py-2 text-ink-900 font-sans focus:outline-none focus:border-ink-900 text-xs"
-                    />
-                    <div className="flex flex-wrap gap-1 text-[10px] text-ink-500">
-                      <span>빠른 샘플 이미지:</span>
-                      <button
-                        type="button"
-                        onClick={() => setProdFormImage('https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1200&q=80')}
-                        className="text-lacquer underline hover:text-ink-900"
-                      >
-                        [의류]
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setProdFormImage('https://images.unsplash.com/photo-1551232864-3f0890e580d9?auto=format&fit=crop&w=1200&q=80')}
-                        className="text-lacquer underline hover:text-ink-900"
-                      >
-                        [니트]
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setProdFormImage('https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=1200&q=80')}
-                        className="text-lacquer underline hover:text-ink-900"
-                      >
-                        [도자기]
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setProdFormImage('https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=1200&q=80')}
-                        className="text-lacquer underline hover:text-ink-900"
-                      >
-                        [소품]
-                      </button>
-                    </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-paper-200">
+                  <h4 className="font-bold text-ink-900 flex items-center gap-1.5 text-xs">
+                    <UploadCloud className="w-3.5 h-3.5 text-lacquer" /> 상품 사진 관리
+                    <span className="text-[10px] text-ink-500 font-normal">
+                      (첫 번째 이미지가 쇼핑몰 대표 썸네일로 사용됩니다)
+                    </span>
+                  </h4>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setProdImageTab('FILE')}
+                      className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                        prodImageTab === 'FILE'
+                          ? 'bg-ink-900 text-paper-100 font-medium'
+                          : 'bg-paper-200 text-ink-700 hover:bg-paper-300'
+                      }`}
+                    >
+                      📁 파일 직접 업로드
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProdImageTab('URL')}
+                      className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                        prodImageTab === 'URL'
+                          ? 'bg-ink-900 text-paper-100 font-medium'
+                          : 'bg-paper-200 text-ink-700 hover:bg-paper-300'
+                      }`}
+                    >
+                      🔗 URL 입력
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProdImageTab('PRESET')}
+                      className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                        prodImageTab === 'PRESET'
+                          ? 'bg-ink-900 text-paper-100 font-medium'
+                          : 'bg-paper-200 text-ink-700 hover:bg-paper-300'
+                      }`}
+                    >
+                      ✨ 추천 샘플
+                    </button>
                   </div>
                 </div>
+
+                {/* 탭 1: 파일 직접 업로드 (드래그앤드롭 + 파일 선택 버튼) */}
+                {prodImageTab === 'FILE' && (
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setUploadDragActive(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      setUploadDragActive(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setUploadDragActive(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleUploadImageFiles(e.dataTransfer.files);
+                      }
+                    }}
+                    className={`border-2 border-dashed p-5 text-center transition-all cursor-pointer rounded-sm ${
+                      uploadDragActive
+                        ? 'border-lacquer bg-lacquer/5'
+                        : 'border-paper-300 bg-paper-100 hover:border-ink-500'
+                    }`}
+                    onClick={() => {
+                      const input = document.getElementById('prod-file-upload-input') as HTMLInputElement;
+                      if (input) input.click();
+                    }}
+                  >
+                    <input
+                      id="prod-file-upload-input"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          handleUploadImageFiles(e.target.files);
+                        }
+                      }}
+                    />
+
+                    {isUploadingImage ? (
+                      <div className="py-2 flex flex-col items-center justify-center space-y-2">
+                        <RefreshCw className="w-6 h-6 animate-spin text-lacquer" />
+                        <span className="text-xs font-serif-kr text-ink-700">
+                          고화질 최적화 압축 및 이미지 업로드 중...
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <UploadCloud className="w-8 h-8 mx-auto text-ink-400" />
+                        <p className="text-xs font-serif-kr font-bold text-ink-800">
+                          컴퓨터에서 사진 파일을 드래그하여 놓거나 클릭하여 선택하세요
+                        </p>
+                        <p className="text-[11px] text-ink-500 font-sans">
+                          JPG, PNG, WEBP, GIF 지원 (대용량 사진도 브라우저에서 자동 최적화 압축 처리)
+                        </p>
+                        <button
+                          type="button"
+                          className="mt-1 px-3 py-1 bg-ink-900 hover:bg-lacquer text-paper-100 text-[11px] font-serif-kr rounded-sm"
+                        >
+                          내 PC에서 파일 찾기
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 탭 2: URL 직접 입력 */}
+                {prodImageTab === 'URL' && (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="https://images.unsplash.com/... 등 이미지 URL 입력"
+                      value={customUrlInput}
+                      onChange={(e) => setCustomUrlInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCustomUrl(customUrlInput);
+                        }
+                      }}
+                      className="flex-1 bg-paper-100 border border-paper-300 px-3 py-2 text-ink-900 font-sans focus:outline-none focus:border-ink-900 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddCustomUrl(customUrlInput)}
+                      className="px-3 py-2 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr whitespace-nowrap"
+                    >
+                      추가
+                    </button>
+                  </div>
+                )}
+
+                {/* 탭 3: 추천 샘플 갤러리 */}
+                {prodImageTab === 'PRESET' && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { label: '조선 왕실 코트 (의류)', url: 'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=1200&q=80' },
+                      { label: '전통 자수 니트', url: 'https://images.unsplash.com/photo-1551232864-3f0890e580d9?auto=format&fit=crop&w=1200&q=80' },
+                      { label: '달항아리 백자 (도예)', url: 'https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=1200&q=80' },
+                      { label: '궁중 매듭 노리개 (소품)', url: 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=1200&q=80' },
+                    ].map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleAddCustomUrl(preset.url)}
+                        className="p-2 border border-paper-300 bg-paper-100 hover:border-lacquer text-left flex items-center gap-2 transition-all group"
+                      >
+                        <img src={preset.url} alt={preset.label} className="w-10 h-10 object-cover flex-shrink-0" />
+                        <span className="text-[11px] font-serif-kr text-ink-800 group-hover:text-lacquer truncate">
+                          + {preset.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* 등록된 이미지 갤러리 리스트 */}
+                {prodFormImages.length > 0 && (
+                  <div className="space-y-1.5 pt-2 border-t border-paper-200">
+                    <div className="flex items-center justify-between text-[11px] text-ink-600 font-serif-kr">
+                      <span>등록된 상품 이미지 ({prodFormImages.length}장):</span>
+                      <button
+                        type="button"
+                        onClick={() => setProdFormImages([])}
+                        className="text-[10px] text-rose-600 hover:underline"
+                      >
+                        전체 비우기
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2.5">
+                      {prodFormImages.map((imgUrl, idx) => {
+                        const isPrimary = idx === 0;
+                        return (
+                          <div
+                            key={idx}
+                            className={`relative w-20 h-24 bg-paper-200 border overflow-hidden group ${
+                              isPrimary ? 'border-lacquer ring-2 ring-lacquer/40' : 'border-paper-300'
+                            }`}
+                          >
+                            <img
+                              src={imgUrl}
+                              alt={`이미지 ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=600&q=80';
+                              }}
+                            />
+
+                            {/* 대표 뱃지 */}
+                            {isPrimary && (
+                              <span className="absolute top-1 left-1 px-1 py-0.5 bg-lacquer text-white text-[9px] font-bold rounded-xs tracking-wider">
+                                대표
+                              </span>
+                            )}
+
+                            {/* 오버레이 액션 버튼들 */}
+                            <div className="absolute inset-0 bg-ink-900/70 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 transition-opacity p-1">
+                              {!isPrimary && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSetPrimaryImage(idx);
+                                  }}
+                                  className="w-full py-0.5 bg-paper-100 hover:bg-white text-ink-900 text-[9px] font-serif-kr"
+                                >
+                                  대표 설정
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveFormImage(idx);
+                                }}
+                                className="w-full py-0.5 bg-rose-700 hover:bg-rose-800 text-white text-[9px] font-serif-kr"
+                              >
+                                삭제
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 3. 상품 설명 및 상세 정보 */}
