@@ -10,7 +10,6 @@ import { MobileBottomBar } from './components/common/MobileBottomBar';
 import { SearchModal } from './components/common/SearchModal';
 import { QuickViewModal } from './components/common/QuickViewModal';
 import { ChatbotModal } from './components/common/ChatbotModal';
-import { KoreanDragonCursor } from './components/common/KoreanDragonCursor';
 import { PRODUCTS } from './data/products';
 import { Product, ProductCategory } from './types';
 
@@ -207,10 +206,7 @@ export const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-paper-100 text-ink-900 font-sans selection:bg-ink-900 selection:text-paper-100 relative">
-      {/* 1. 수묵 비룡 인터랙티브 커서 (조선 왕실 물리엔진) */}
-      <KoreanDragonCursor />
-
-      {/* 2. Header */}
+      {/* 1. Header */}
       {!isAdminView && (
         <Header
           currentPath={currentPath}
