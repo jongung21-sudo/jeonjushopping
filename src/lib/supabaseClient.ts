@@ -5,10 +5,22 @@ const defaultUrl = 'https://bjofkwwzeapgjahsjdzb.supabase.co';
 const envUrl = import.meta.env.VITE_SUPABASE_URL;
 const envAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+export const extractSupabaseKey = (input: string): string => {
+  if (!input) return '';
+  const trimmed = input.trim();
+  // Check if .env format with PUBLISHABLE_KEY or ANON_KEY
+  const match = trimmed.match(/(?:KEY|ANON_KEY|PUBLISHABLE_KEY)\s*=\s*([^\s\r\n]+)/i);
+  if (match && match[1]) {
+    return match[1].replace(/['"]/g, '').trim();
+  }
+  return trimmed;
+};
+
 // 로컬 스토리지에 저장된 사용자 입력 키 지원 (브라우저에서 바로 연동 가능)
 const getStoredAnonKey = () => {
   try {
-    return localStorage.getItem('jeonjulee_supabase_anon_key') || '';
+    const raw = localStorage.getItem('jeonjulee_supabase_anon_key') || '';
+    return extractSupabaseKey(raw);
   } catch {
     return '';
   }
@@ -20,7 +32,7 @@ export const getSupabaseAnonKey = () => {
   const stored = getStoredAnonKey();
   if (stored && stored.length > 20) return stored;
   if (envAnonKey && envAnonKey.length > 20 && envAnonKey !== 'your-supabase-anon-public-key-here') {
-    return envAnonKey;
+    return extractSupabaseKey(envAnonKey);
   }
   return '';
 };
@@ -53,10 +65,10 @@ export const getSupabaseClient = (): SupabaseClient => {
 
 export const resetSupabaseClient = (newAnonKey?: string) => {
   if (typeof window !== 'undefined' && newAnonKey !== undefined) {
-    const trimmed = newAnonKey.trim();
-    if (trimmed && !trimmed.startsWith('http')) {
-      localStorage.setItem('jeonjulee_supabase_anon_key', trimmed);
-    } else if (!trimmed) {
+    const extracted = extractSupabaseKey(newAnonKey);
+    if (extracted && !extracted.startsWith('http')) {
+      localStorage.setItem('jeonjulee_supabase_anon_key', extracted);
+    } else if (!extracted) {
       localStorage.removeItem('jeonjulee_supabase_anon_key');
     }
   }

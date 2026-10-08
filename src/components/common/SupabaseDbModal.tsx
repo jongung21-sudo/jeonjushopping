@@ -5,6 +5,7 @@ import {
   isSupabaseConfigured,
   resetSupabaseClient,
   testSupabaseConnection,
+  extractSupabaseKey,
 } from '../../lib/supabaseClient';
 import { dbService } from '../../services/dbService';
 import { useToast } from '../../context/ToastContext';
@@ -40,12 +41,18 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
   const configured = isSupabaseConfigured();
 
   const handleSaveKey = () => {
-    if (anonKey.trim().startsWith('http://') || anonKey.trim().startsWith('https://')) {
-      showToast('입력하신 값은 주소(URL)입니다. 아래의 "anon public" 키(eyJhbGci...)를 복사해주세요!', 'error');
+    const extracted = extractSupabaseKey(anonKey);
+    if (!extracted) {
+      showToast('API Key를 입력해주세요.', 'error');
       return;
     }
-    resetSupabaseClient(anonKey);
-    showToast('Supabase Anon Key가 저장되었습니다.');
+    if (extracted.startsWith('http://') || extracted.startsWith('https://')) {
+      showToast('입력하신 값은 주소(URL)입니다. Connect 창의 PUBLISHABLE_KEY(sb_publishable_...)를 복사해주세요!', 'error');
+      return;
+    }
+    setAnonKey(extracted);
+    resetSupabaseClient(extracted);
+    showToast('Supabase Key가 저장되었습니다.');
     handleTestConnection();
   };
 
@@ -235,8 +242,12 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
             <textarea
               rows={3}
               value={anonKey}
-              onChange={(e) => setAnonKey(e.target.value)}
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... (Project Settings > API > Project API keys > anon public)"
+              onChange={(e) => {
+                const val = e.target.value;
+                const extracted = extractSupabaseKey(val);
+                setAnonKey(extracted || val);
+              }}
+              placeholder="sb_publishable_... 또는 eyJhbGciOi... (Connect 창의 키)"
               className={`w-full bg-paper-50 border px-3 py-2 text-ink-900 font-mono text-[11px] focus:outline-none rounded-sm ${
                 anonKey.trim().startsWith('http')
                   ? 'border-red-500 bg-red-50/30'
