@@ -256,6 +256,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = async (email: string, password?: string): Promise<boolean> => {
     const trimmed = email.trim().toLowerCase();
+
+    // 1. Supabase 실시간 클라우드 DB 연동 시 보안 인증 시도
+    if (password) {
+      const serverUser = await dbService.authenticateMember(trimmed, password);
+      if (serverUser) {
+        setUser(serverUser);
+        setAllUsers((prev) => {
+          const filtered = prev.filter((u) => u.email.toLowerCase() !== trimmed);
+          return [serverUser, ...filtered];
+        });
+        showToast(`${serverUser.name}님, 전주이씨 공식 부티크에 로그인되었습니다.`, 'success');
+        return true;
+      }
+    }
+
     const existing = allUsers.find((u) => u.email.toLowerCase() === trimmed);
 
     if (existing) {
@@ -270,7 +285,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return true;
     }
 
-    // 신규 자동 생성
+    // 신규 로컬 유저 생성 폴백
     const newUser: User = {
       id: `usr-${Date.now().toString(36)}`,
       name: email.split('@')[0],

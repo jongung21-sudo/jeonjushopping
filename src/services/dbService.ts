@@ -213,6 +213,72 @@ export const dbService = {
     }
   },
 
+  // 보안 로그인 인증 (Supabase authenticate_member RPC 함수 우선 사용)
+  async authenticateMember(email: string, password: string): Promise<User | null> {
+    if (!isSupabaseConfigured() || !password) return null;
+    try {
+      const client = getSupabaseClient();
+      const trimmed = email.trim().toLowerCase();
+
+      // 1. 보안 RPC 함수 (비밀번호 비교를 DB 내부에서 안전하게 실행)
+      const { data: rpcData, error: rpcErr } = await client.rpc('authenticate_member', {
+        p_email: trimmed,
+        p_password: password,
+      });
+
+      if (!rpcErr && rpcData && rpcData.length > 0) {
+        const u = rpcData[0];
+        return {
+          id: u.id,
+          email: u.email,
+          name: u.name,
+          phone: u.phone || '',
+          postalCode: u.postal_code || '',
+          address: u.address || '',
+          detailAddress: u.detail_address || '',
+          points: u.points ?? 5000,
+          membershipGrade: u.membership_grade || '전주이씨 가문회원',
+          role: u.role || 'customer',
+          couponCount: 2,
+          ordersCount: 0,
+          createdAt: u.created_at ? new Date(u.created_at).toISOString().slice(0, 10) : undefined,
+        };
+      }
+
+      // 2. RPC가 없는 경우 members 테이블 직접 조회 폴백
+      const { data, error } = await client
+        .from('members')
+        .select('*')
+        .eq('email', trimmed)
+        .maybeSingle();
+
+      if (!error && data) {
+        if (data.password === password) {
+          return {
+            id: data.id,
+            email: data.email,
+            name: data.name,
+            phone: data.phone || '',
+            postalCode: data.postal_code || '',
+            address: data.address || '',
+            detailAddress: data.detail_address || '',
+            points: data.points ?? 5000,
+            membershipGrade: data.membership_grade || '전주이씨 가문회원',
+            role: data.role || 'customer',
+            couponCount: 2,
+            ordersCount: 0,
+            createdAt: data.created_at ? new Date(data.created_at).toISOString().slice(0, 10) : undefined,
+          };
+        }
+      }
+
+      return null;
+    } catch (e) {
+      console.warn('authenticateMember fallback:', e);
+      return null;
+    }
+  },
+
   // 전체 회원 프로필 조회
   async fetchProfiles(): Promise<User[] | null> {
     if (!isSupabaseConfigured()) return null;
