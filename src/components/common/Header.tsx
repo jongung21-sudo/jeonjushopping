@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Search, User, Heart, ShoppingBag, Menu, X, ArrowRight, Database, Sparkles, UserPlus } from 'lucide-react';
+import { Search, User, Heart, ShoppingBag, Menu, X, ArrowRight, Database, Sparkles, UserPlus, Lock } from 'lucide-react';
 import { Logo } from './Logo';
 import { SignUpModal } from './SignUpModal';
+import { LoginModal } from './LoginModal';
 import { SupabaseDbModal } from './SupabaseDbModal';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
@@ -18,10 +19,11 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [signUpModalOpen, setSignUpModalOpen] = useState(false);
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [dbModalOpen, setDbModalOpen] = useState(false);
   const { totalItemCount } = useCart();
   const { wishlistIds } = useWishlist();
-  const { isLoggedIn, user } = useAuth();
+  const { isLoggedIn, user, logout } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -124,16 +126,49 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
                 <span className="font-medium">{isSupabaseConfigured() ? 'DB 연결됨' : '로컬 모드'}</span>
               </button>
 
-              {/* 회원가입 버튼 (참조이미지 헤더란에 회원가입창 열기) */}
-              <button
-                onClick={() => setSignUpModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 bg-ink-900 text-paper-100 hover:bg-lacquer text-xs font-serif-kr transition-all shadow-sm rounded-xs group"
-                title="전주이씨 가문 회원가입 창 열기 (+5,000P 즉시 지급)"
-              >
-                <Sparkles className="w-3 h-3 text-bronze group-hover:rotate-12 transition-transform" />
-                <span className="tracking-wide">회원가입</span>
-                <span className="text-[10px] text-bronze font-sans font-normal ml-0.5">(+5,000P)</span>
-              </button>
+              {/* 회원가입 & 로그인 버튼 그룹 */}
+              {!isLoggedIn ? (
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  {/* 회원가입 버튼 */}
+                  <button
+                    onClick={() => setSignUpModalOpen(true)}
+                    className="inline-flex items-center gap-1 px-2 sm:px-3 py-1 bg-ink-900 text-paper-100 hover:bg-lacquer text-xs font-serif-kr transition-all shadow-sm rounded-xs group"
+                    title="전주이씨 가문 회원가입 창 열기 (+5,000P 즉시 지급)"
+                  >
+                    <Sparkles className="w-3 h-3 text-bronze group-hover:rotate-12 transition-transform" />
+                    <span className="tracking-wide">회원가입</span>
+                    <span className="text-[10px] text-bronze font-sans font-normal ml-0.5">(+5,000P)</span>
+                  </button>
+
+                  {/* 로그인 버튼 (회원가입 옆에 로그인창 열기) */}
+                  <button
+                    onClick={() => setLoginModalOpen(true)}
+                    className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 bg-paper-100 hover:bg-paper-200 text-ink-900 border border-paper-300 hover:border-ink-900 text-xs font-serif-kr transition-all shadow-2xs rounded-xs"
+                    title="전주이씨 가문 로그인 창 열기"
+                  >
+                    <Lock className="w-3 h-3 text-bronze" />
+                    <span className="tracking-wide">로그인</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleNavClick('/mypage')}
+                    className="hidden sm:inline-flex items-center gap-1.5 text-xs text-ink-700 font-serif-kr hover:text-ink-900"
+                  >
+                    <span className="text-bronze font-medium">{user?.name}</span>님
+                    <span className="text-[10px] bg-paper-200 border border-paper-300 px-1.5 py-0.5 rounded text-ink-600">
+                      {user?.points.toLocaleString()}P
+                    </span>
+                  </button>
+                  <button
+                    onClick={logout}
+                    className="text-[11px] text-ink-500 hover:text-ink-900 border border-paper-300 px-2 py-0.5 rounded-xs hover:border-ink-600 transition-colors"
+                  >
+                    로그아웃
+                  </button>
+                </div>
+              )}
 
               {/* Search */}
               <button
@@ -150,12 +185,12 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
                   if (isLoggedIn) {
                     handleNavClick('/mypage');
                   } else {
-                    setSignUpModalOpen(true);
+                    setLoginModalOpen(true);
                   }
                 }}
                 className="flex items-center p-1 text-ink-900 hover:opacity-60 transition-opacity relative"
                 aria-label="마이페이지"
-                title={isLoggedIn ? `${user?.name}님 마이페이지` : '회원가입 / 로그인'}
+                title={isLoggedIn ? `${user?.name}님 마이페이지` : '로그인 / 회원가입'}
               >
                 <User className="w-[18px] h-[18px]" strokeWidth={1.5} />
                 {isLoggedIn && (
@@ -240,10 +275,14 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
                 ) : (
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={() => handleNavClick('/login')}
-                      className="text-xs font-medium text-ink-900 border border-ink-900 px-3 py-1.5"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setLoginModalOpen(true);
+                      }}
+                      className="text-xs font-medium text-ink-900 border border-ink-900 px-3 py-1.5 flex items-center gap-1"
                     >
-                      로그인
+                      <Lock className="w-3 h-3 text-bronze" />
+                      <span>로그인</span>
                     </button>
                     <button
                       onClick={() => {
@@ -354,7 +393,15 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
       <SignUpModal
         isOpen={signUpModalOpen}
         onClose={() => setSignUpModalOpen(false)}
-        onSwitchToLogin={() => handleNavClick('/login')}
+        onSwitchToLogin={() => setLoginModalOpen(true)}
+      />
+
+      {/* 로그인 모달창 */}
+      <LoginModal
+        isOpen={loginModalOpen}
+        onClose={() => setLoginModalOpen(false)}
+        onSwitchToSignUp={() => setSignUpModalOpen(true)}
+        onNavigateToFindAccount={() => handleNavClick('/find-account')}
       />
 
       {/* Supabase 데이터베이스 관리 모달 */}

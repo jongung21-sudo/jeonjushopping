@@ -40,8 +40,12 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
   const configured = isSupabaseConfigured();
 
   const handleSaveKey = () => {
+    if (anonKey.trim().startsWith('http://') || anonKey.trim().startsWith('https://')) {
+      showToast('입력하신 값은 주소(URL)입니다. 아래의 "anon public" 키(eyJhbGci...)를 복사해주세요!', 'error');
+      return;
+    }
     resetSupabaseClient(anonKey);
-    showToast('Supabase Anon Key가 브라우저에 저장되었습니다.');
+    showToast('Supabase Anon Key가 저장되었습니다.');
     handleTestConnection();
   };
 
@@ -113,7 +117,7 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
               Supabase 데이터베이스 연동 관리
             </h2>
             <p className="text-xs text-ink-500 font-sans mt-0.5">
-              클라우드 실시간 데이터베이스(`https://opyqqllhhirdrcilqsev.supabase.co`) 연결 상태를 제어합니다.
+              전주이씨 클라우드 실시간 데이터베이스(<code>https://bjofkwwzeapgjahsjdzb.supabase.co</code>) 연결 상태를 제어합니다.
             </p>
           </div>
         </div>
@@ -143,7 +147,7 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
               </div>
               <p className="text-[11px] text-ink-500 mt-0.5">
                 {configured
-                  ? '모든 회원가입, 포인트, 주문, 리뷰 데이터가 클라우드 DB에 실시간 저장됩니다.'
+                  ? '모든 회원가입, 포인트, 주문 데이터가 bjofkwwzeapgjahsjdzb 클라우드 DB에 실시간 저장됩니다.'
                   : '키가 설정되지 않은 경우에도 장바구니, 가입, 포인트 등 모든 기능이 100% 정상 작동합니다.'}
               </p>
             </div>
@@ -164,8 +168,8 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
           <div
             className={`mt-3 p-3 rounded-sm text-xs border ${
               testResult.success
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : 'bg-red-50 border-red-200 text-red-800'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-medium'
+                : 'bg-red-50 border-red-200 text-red-800 font-medium'
             }`}
           >
             {testResult.message}
@@ -186,7 +190,7 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
                 className="w-full bg-paper-200/60 border border-paper-300 px-3 py-2 text-ink-700 font-mono text-[11px] rounded-sm select-all"
               />
               <a
-                href="https://supabase.com/dashboard/project/opyqqllhhirdrcilqsev"
+                href="https://supabase.com/dashboard/project/bjofkwwzeapgjahsjdzb"
                 target="_blank"
                 rel="noreferrer"
                 className="flex-shrink-0 p-2 bg-paper-200 border border-paper-300 text-ink-700 hover:text-ink-900 rounded-sm"
@@ -209,17 +213,53 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
                 rel="noreferrer"
                 className="text-[11px] text-bronze hover:underline inline-flex items-center gap-1 font-medium"
               >
-                <span>대시보드에서 키 복사하기</span>
+                <span>대시보드에서 키 복사하기 (클릭)</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
+
+            {/* Step guidance box */}
+            <div className="p-3 bg-bronze/10 border border-bronze/30 rounded-sm mb-2 text-[11px] text-ink-800 space-y-1">
+              <div className="font-bold text-bronze flex items-center gap-1">
+                <span>🔑 Anon Key 복사하는 정확한 방법 (필독)</span>
+              </div>
+              <ol className="list-decimal list-inside space-y-0.5 text-ink-700 text-[11px]">
+                <li>상단 우측의 <strong className="text-bronze">[대시보드에서 키 복사하기]</strong> 링크를 클릭합니다.</li>
+                <li>열린 화면에서 <strong>마우스 휠을 아래로 살짝 내립니다</strong>.</li>
+                <li><strong>Project API keys</strong> 섹션에서 <strong className="text-lacquer font-mono">anon public</strong> 옆의 <strong>[Copy]</strong> 버튼을 누릅니다.</li>
+                <li>복사된 값은 URL이 아닌 <strong className="font-mono bg-paper-200 px-1 py-0.5 rounded">eyJhbGciOi...</strong> 로 시작하는 긴 암호 문자열입니다.</li>
+                <li>아래 입력칸에 붙여넣고 <strong>[키 저장 및 적용]</strong>을 클릭하면 연결 완료!</li>
+              </ol>
+            </div>
+
             <textarea
               rows={3}
               value={anonKey}
               onChange={(e) => setAnonKey(e.target.value)}
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... (Supabase Project Settings > API > anon public 키)"
-              className="w-full bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900 font-mono text-[11px] focus:outline-none focus:border-ink-900 rounded-sm"
+              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... (Project Settings > API > Project API keys > anon public)"
+              className={`w-full bg-paper-50 border px-3 py-2 text-ink-900 font-mono text-[11px] focus:outline-none rounded-sm ${
+                anonKey.trim().startsWith('http')
+                  ? 'border-red-500 bg-red-50/30'
+                  : 'border-paper-300 focus:border-ink-900'
+              }`}
             />
+
+            {/* Error banner if user entered a URL */}
+            {anonKey.trim().startsWith('http') && (
+              <div className="mt-2 p-2.5 bg-red-50 border border-red-300 rounded text-red-700 text-[11px] leading-relaxed flex items-start gap-2 animate-fade-in">
+                <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-red-800">⚠️ 주소(URL)를 복사하여 붙여넣으셨습니다!</p>
+                  <p className="mt-0.5">
+                    현재 입력하신 값(<code>{anonKey.trim().slice(0, 45)}...</code>)은 웹 주소(API URL)이며, <strong>Anon Key</strong>가 아닙니다.
+                  </p>
+                  <p className="mt-1">
+                    👉 Supabase 화면에서 <strong>스크롤을 아래로 내려</strong> <strong>Project API keys</strong> 섹션의 <strong>anon public</strong> 옆 <strong>[Copy]</strong>를 눌러 <code className="bg-red-100 text-red-900 px-1 font-mono">eyJhbGci...</code> 로 시작하는 키를 복사해주세요!
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mt-2">
               <span className="text-[11px] text-ink-500">
                 키를 붙여넣고 [키 저장 및 적용]을 누르면 즉시 실시간 DB 모드로 활성화됩니다.
@@ -227,7 +267,8 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
               <button
                 type="button"
                 onClick={handleSaveKey}
-                className="px-4 py-1.5 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr rounded-sm transition-colors shadow-sm"
+                disabled={anonKey.trim().startsWith('http')}
+                className="px-4 py-1.5 bg-ink-900 hover:bg-lacquer disabled:bg-ink-400 text-paper-100 text-xs font-serif-kr rounded-sm transition-colors shadow-sm cursor-pointer disabled:cursor-not-allowed"
               >
                 키 저장 및 적용
               </button>
