@@ -59,7 +59,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
 
   const [activeTab, setActiveTab] = useState<
     'DASHBOARD' | 'ORDERS' | 'INVENTORY' | 'MATERIALS' | 'PURCHASE' | 'TAX' | 'MEMBERS' | 'DB_SETTINGS'
-  >('DASHBOARD');
+  >(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab') as any;
+      if (
+        tabParam &&
+        ['DASHBOARD', 'ORDERS', 'INVENTORY', 'MATERIALS', 'PURCHASE', 'TAX', 'MEMBERS', 'DB_SETTINGS'].includes(
+          tabParam
+        )
+      ) {
+        return tabParam;
+      }
+    } catch {}
+    return 'DASHBOARD';
+  });
 
   // 상품/재고 관리 상태
   const [stockAdjustment, setStockAdjustment] = useState<{ [id: string]: number }>({});
@@ -1354,53 +1368,53 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
     <div className="min-h-screen bg-paper-50 text-ink-900 pb-20">
       {/* 관리자 헤더 */}
       <div className="bg-paper-100 border-b border-paper-300 sticky top-0 z-30 shadow-subtle">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/')}
-              className="p-1.5 border border-paper-300 hover:bg-paper-200 transition-colors text-ink-700"
+              className="p-2 border border-paper-300 bg-white hover:bg-paper-200 transition-colors text-ink-800 rounded-xs"
               title="부티크 메인으로 돌아가기"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
             <div>
-              <h1 className="text-base sm:text-lg font-serif-kr font-semibold text-ink-900 flex items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-serif-kr font-bold text-ink-900 flex items-center gap-2.5 whitespace-nowrap">
                 <span>전주이씨 (JEONJU LEE) 통합 ERP 어드민</span>
-                <span className="text-[10px] px-2 py-0.5 bg-paper-300 font-sans uppercase font-medium">
+                <span className="text-[11px] px-2.5 py-0.5 bg-ink-900 text-paper-100 font-sans uppercase font-semibold rounded-xs">
                   v2.6 Enterprise
                 </span>
               </h1>
-              <p className="text-[11px] text-ink-500 font-serif-kr">
+              <p className="text-xs text-ink-600 font-serif-kr mt-0.5">
                 주문 배송, 원부자재 수급, 공방 발주, 세금명세서 및 Supabase 클라우드 실시간 제어
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5 whitespace-nowrap">
             {/* DB 연결 뱃지 */}
             <button
               onClick={() => setActiveTab('DB_SETTINGS')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-serif-kr border transition-all ${
+              className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-serif-kr font-semibold border rounded-xs transition-all whitespace-nowrap ${
                 isSupabaseConfigured()
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                  : 'bg-amber-50 text-amber-800 border-amber-300'
+                  ? 'bg-emerald-50 text-emerald-900 border-emerald-400 hover:bg-emerald-100'
+                  : 'bg-amber-50 text-amber-900 border-amber-400 hover:bg-amber-100'
               }`}
             >
               <Database className="w-3.5 h-3.5" />
-              <span>{isSupabaseConfigured() ? 'Supabase 실시간 연동' : '로컬 세이프 모드'}</span>
+              <span>{isSupabaseConfigured() ? 'Supabase 실시간 연동됨' : '로컬 세이프 모드'}</span>
             </button>
 
             <button
               onClick={() => navigate('/')}
-              className="px-3 py-1.5 bg-ink-900 text-paper-100 hover:bg-lacquer text-xs font-serif-kr transition-colors"
+              className="px-4 py-2 bg-ink-900 text-paper-100 hover:bg-lacquer text-xs font-serif-kr font-semibold rounded-xs transition-colors whitespace-nowrap"
             >
-              쇼핑몰 보기 &rarr;
+              쇼핑몰 메인 보기 &rarr;
             </button>
           </div>
         </div>
 
         {/* 탭 네비게이션 */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex overflow-x-auto gap-1 border-t border-paper-200 text-xs font-serif-kr">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 flex overflow-x-auto gap-1.5 border-t border-paper-300 bg-white/70 text-xs sm:text-[13px] font-serif-kr">
           {[
             { id: 'DASHBOARD', label: '대시보드', icon: LayoutDashboard },
             { id: 'ORDERS', label: `주문/배송/환불 (${orders.length})`, icon: ShoppingBag },
@@ -1417,13 +1431,13 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`py-3 px-3.5 flex items-center gap-1.5 whitespace-nowrap border-b-2 transition-all ${
+                className={`py-3.5 px-4 flex items-center gap-2 whitespace-nowrap border-b-2 transition-all ${
                   active
                     ? 'border-lacquer text-lacquer font-bold bg-lacquer/5'
-                    : 'border-transparent text-ink-600 hover:text-ink-900'
+                    : 'border-transparent text-ink-700 hover:text-ink-900 hover:bg-paper-100/60 font-medium'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-4 h-4 flex-shrink-0" />
                 <span>{tab.label}</span>
               </button>
             );
@@ -1431,21 +1445,21 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 py-8">
         {/* 1. DASHBOARD TAB */}
         {activeTab === 'DASHBOARD' && (
           <div className="space-y-8 animate-fade-in">
             {/* 대시보드 Supabase DB 연동 컨트롤 바 (직관적인 테이블/컬럼 네이밍 안내) */}
-            <div className="bg-paper-100 border border-paper-300 p-4 shadow-subtle flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-serif-kr font-bold text-ink-900">
+            <div className="bg-white border border-paper-300 p-5 shadow-subtle flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-serif-kr font-bold text-ink-900">
                     <Database className="w-4 h-4 text-lacquer" />
                     대시보드 Supabase 실시간 데이터베이스 연동
                   </span>
                   {isSupabaseConfigured() && (
                     <span
-                      className={`px-2 py-0.5 text-[10px] font-sans font-bold rounded border ${
+                      className={`px-2.5 py-0.5 text-xs font-sans font-bold rounded-xs border whitespace-nowrap ${
                         dashboardDbStatus.dashboardSummaryExists || dashboardDbStatus.dashboardOrdersExists || dashboardDbStatus.exists
                           ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                           : 'bg-amber-50 text-amber-800 border-amber-300'
@@ -1459,28 +1473,28 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                     </span>
                   )}
                 </div>
-                <p className="text-[11px] text-ink-600 font-serif-kr">
+                <p className="text-xs text-ink-600 font-serif-kr">
                   저장 테이블:{' '}
                   <code className="bg-paper-200 px-1.5 py-0.5 text-ink-900 font-sans font-semibold">
                     dashboard_summary
                   </code>{' '}
-                  <span className="text-ink-500">(📊 대시보드 요약)</span> ·{' '}
+                  <span className="text-ink-600">(📊 대시보드 요약)</span> ·{' '}
                   <code className="bg-paper-200 px-1.5 py-0.5 text-ink-900 font-sans font-semibold">
                     dashboard_orders
                   </code>{' '}
-                  <span className="text-ink-500">(📦 실시간 주문내역)</span> ·{' '}
+                  <span className="text-ink-600">(📦 실시간 주문내역)</span> ·{' '}
                   <code className="bg-paper-200 px-1.5 py-0.5 text-ink-900 font-sans font-semibold">
                     orders
                   </code>{' '}
-                  <span className="text-ink-500">(🛒 주문/배송 마스터)</span>
+                  <span className="text-ink-600">(🛒 주문/배송 마스터)</span>
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">
                 <button
                   type="button"
                   onClick={handleCopyDashboardSql}
-                  className="flex items-center gap-1.5 px-3 py-2 border border-amber-500 bg-amber-50 text-amber-900 text-xs font-serif-kr font-semibold hover:bg-amber-100 transition-colors"
+                  className="flex items-center gap-1.5 px-3.5 py-2 border border-amber-500 bg-amber-50 text-amber-900 text-xs font-serif-kr font-semibold hover:bg-amber-100 transition-colors whitespace-nowrap"
                   title="Supabase Table Editor에서 한글 설명과 직관적인 컬럼명으로 보이도록 테이블 생성 SQL 복사"
                 >
                   <Database className="w-3.5 h-3.5 text-amber-700" />
@@ -1490,7 +1504,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                   type="button"
                   onClick={handleRefreshDashboardFromSupabase}
                   disabled={isSyncingDashboard}
-                  className="flex items-center gap-1.5 px-3 py-2 border border-paper-300 bg-white text-ink-800 text-xs font-serif-kr hover:border-ink-900 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3.5 py-2 border border-paper-300 bg-white text-ink-800 text-xs font-serif-kr font-medium hover:border-ink-900 transition-colors disabled:opacity-50 whitespace-nowrap"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDashboard ? 'animate-spin' : ''}`} />
                   대시보드 DB 동기화
@@ -1499,7 +1513,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                   type="button"
                   onClick={handleSyncDashboardToSupabase}
                   disabled={isSyncingDashboard}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-lacquer text-white text-xs font-serif-kr font-medium hover:bg-lacquer-light transition-colors disabled:opacity-50 shadow-sm"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-lacquer text-white text-xs font-serif-kr font-semibold hover:bg-lacquer-light transition-colors disabled:opacity-50 shadow-sm whitespace-nowrap"
                 >
                   <UploadCloud className="w-3.5 h-3.5" />
                   {isSyncingDashboard ? 'DB 저장 중...' : '대시보드 전체 DB 저장'}
@@ -1508,130 +1522,130 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
             </div>
 
             {/* 상단 통계 카드 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-paper-100 border border-paper-300 p-5 shadow-subtle">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-ink-500 font-serif-kr">누적 결제 매출</p>
-                  <code className="text-[10px] text-ink-400 font-sans bg-paper-200 px-1.5 py-0.5">total_revenue</code>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white border border-paper-300 p-5 shadow-subtle">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-ink-600 font-serif-kr whitespace-nowrap">누적 결제 매출</p>
+                  <code className="text-[11px] text-ink-500 font-sans bg-paper-200 px-2 py-0.5 whitespace-nowrap">total_revenue</code>
                 </div>
-                <p className="text-2xl font-bold font-sans text-lacquer mt-1">
+                <p className="text-2xl font-bold font-sans text-lacquer mt-2 whitespace-nowrap">
                   {totalRevenue.toLocaleString()}<span className="text-sm font-normal text-ink-700 ml-1">원</span>
                 </p>
-                <p className="text-[11px] text-ink-400 mt-2 font-serif-kr">
+                <p className="text-xs text-ink-500 mt-2 font-serif-kr">
                   전체 {orders.length}건 결제 합산 (<code className="font-sans">total_order_count</code>)
                 </p>
               </div>
 
-              <div className="bg-paper-100 border border-paper-300 p-5 shadow-subtle">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-ink-500 font-serif-kr">배송 및 환불 대기</p>
-                  <code className="text-[10px] text-ink-400 font-sans bg-paper-200 px-1.5 py-0.5">pending_shipping_count</code>
+              <div className="bg-white border border-paper-300 p-5 shadow-subtle">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-ink-600 font-serif-kr whitespace-nowrap">배송 및 환불 대기</p>
+                  <code className="text-[11px] text-ink-500 font-sans bg-paper-200 px-2 py-0.5 whitespace-nowrap">pending_shipping_count</code>
                 </div>
-                <p className="text-2xl font-bold font-sans text-ink-900 mt-1">
+                <p className="text-2xl font-bold font-sans text-ink-900 mt-2 whitespace-nowrap">
                   {orders.filter((o) => o.status === '결제완료' || o.status === '반품신청').length}
                   <span className="text-sm font-normal text-ink-700 ml-1">건</span>
                 </p>
-                <p className="text-[11px] text-rose-600 mt-2 font-serif-kr">
+                <p className="text-xs text-rose-600 mt-2 font-serif-kr">
                   반품/환불 신청 {orders.filter((o) => o.status === '반품신청').length}건 (<code className="font-sans">refund_request_count</code>)
                 </p>
               </div>
 
-              <div className="bg-paper-100 border border-paper-300 p-5 shadow-subtle">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-ink-500 font-serif-kr">등록 회원 수</p>
-                  <code className="text-[10px] text-ink-400 font-sans bg-paper-200 px-1.5 py-0.5">registered_member_count</code>
+              <div className="bg-white border border-paper-300 p-5 shadow-subtle">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-ink-600 font-serif-kr whitespace-nowrap">등록 회원 수</p>
+                  <code className="text-[11px] text-ink-500 font-sans bg-paper-200 px-2 py-0.5 whitespace-nowrap">registered_member_count</code>
                 </div>
-                <p className="text-2xl font-bold font-sans text-ink-900 mt-1">
+                <p className="text-2xl font-bold font-sans text-ink-900 mt-2 whitespace-nowrap">
                   {allUsers.length}<span className="text-sm font-normal text-ink-700 ml-1">명</span>
                 </p>
-                <p className="text-[11px] text-ink-400 mt-2 font-serif-kr">웰컴 5,000P 지급 회원 (members 연동)</p>
+                <p className="text-xs text-ink-500 mt-2 font-serif-kr">웰컴 5,000P 지급 회원 (members 연동)</p>
               </div>
 
-              <div className="bg-paper-100 border border-paper-300 p-5 shadow-subtle">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-ink-500 font-serif-kr">안전재고 부족 자재</p>
-                  <code className="text-[10px] text-ink-400 font-sans bg-paper-200 px-1.5 py-0.5">low_stock_material_count</code>
+              <div className="bg-white border border-paper-300 p-5 shadow-subtle">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-ink-600 font-serif-kr whitespace-nowrap">안전재고 부족 자재</p>
+                  <code className="text-[11px] text-ink-500 font-sans bg-paper-200 px-2 py-0.5 whitespace-nowrap">low_stock_material_count</code>
                 </div>
-                <p className="text-2xl font-bold font-sans text-amber-700 mt-1">
+                <p className="text-2xl font-bold font-sans text-amber-700 mt-2 whitespace-nowrap">
                   {materials.filter((m) => m.currentStock <= m.safeStock).length}
                   <span className="text-sm font-normal text-ink-700 ml-1">종</span>
                 </p>
-                <p className="text-[11px] text-amber-700 mt-2 font-serif-kr">공방 추가 발주 필요 (materials 연동)</p>
+                <p className="text-xs text-amber-700 mt-2 font-serif-kr">공방 추가 발주 필요 (materials 연동)</p>
               </div>
             </div>
 
             {/* 최근 주문 현황 */}
-            <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-4">
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-3 border-b border-paper-300">
+            <div className="bg-white border border-paper-300 p-6 shadow-subtle space-y-4">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-4 border-b border-paper-300">
                 <div>
-                  <h2 className="text-sm font-serif-kr font-semibold text-ink-900 flex items-center gap-2">
-                    실시간 주문 접수 내역
-                    <span className="text-[11px] font-sans font-normal text-ink-500 bg-paper-200 px-2 py-0.5">
+                  <h2 className="text-base font-serif-kr font-bold text-ink-900 flex flex-wrap items-center gap-2">
+                    <span>실시간 주문 접수 내역</span>
+                    <span className="text-xs font-sans font-normal text-ink-600 bg-paper-200 px-2.5 py-0.5 rounded-xs">
                       Supabase: public.dashboard_orders / public.orders
                     </span>
                   </h2>
                 </div>
                 <button
                   onClick={() => setActiveTab('ORDERS')}
-                  className="text-xs text-lacquer hover:underline font-serif-kr self-start sm:self-auto"
+                  className="text-xs font-semibold text-lacquer hover:underline font-serif-kr self-start sm:self-auto whitespace-nowrap"
                 >
                   주문 관리 전체보기 &rarr;
                 </button>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-paper-200 text-ink-700 font-serif-kr">
+                <table className="w-full text-sm text-left border-collapse">
+                  <thead className="bg-paper-200 text-ink-900 font-serif-kr border-y border-paper-300 whitespace-nowrap">
                     <tr>
-                      <th className="py-2.5 px-3">
-                        주문번호 <span className="text-[10px] font-sans text-ink-400 font-normal">(order_number)</span>
+                      <th className="py-3.5 px-4 font-bold">
+                        주문번호 <span className="text-[11px] font-sans text-ink-500 font-normal">(order_number)</span>
                       </th>
-                      <th className="py-2.5 px-3">
-                        주문일시 <span className="text-[10px] font-sans text-ink-400 font-normal">(order_date)</span>
+                      <th className="py-3.5 px-4 font-bold">
+                        주문일시 <span className="text-[11px] font-sans text-ink-500 font-normal">(order_date)</span>
                       </th>
-                      <th className="py-2.5 px-3">
-                        주문자 <span className="text-[10px] font-sans text-ink-400 font-normal">(customer_name)</span>
+                      <th className="py-3.5 px-4 font-bold">
+                        주문자 <span className="text-[11px] font-sans text-ink-500 font-normal">(customer_name)</span>
                       </th>
-                      <th className="py-2.5 px-3">
-                        품목명 <span className="text-[10px] font-sans text-ink-400 font-normal">(product_name)</span>
+                      <th className="py-3.5 px-4 font-bold min-w-[240px]">
+                        품목명 <span className="text-[11px] font-sans text-ink-500 font-normal">(product_name)</span>
                       </th>
-                      <th className="py-2.5 px-3">
-                        실결제액 <span className="text-[10px] font-sans text-ink-400 font-normal">(final_price)</span>
+                      <th className="py-3.5 px-4 font-bold">
+                        실결제액 <span className="text-[11px] font-sans text-ink-500 font-normal">(final_price)</span>
                       </th>
-                      <th className="py-2.5 px-3">
-                        상태 <span className="text-[10px] font-sans text-ink-400 font-normal">(status)</span>
+                      <th className="py-3.5 px-4 font-bold">
+                        상태 <span className="text-[11px] font-sans text-ink-500 font-normal">(status)</span>
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-paper-200 font-sans">
                     {orders.slice(0, 10).map((o) => (
                       <tr key={o.id} className="hover:bg-paper-50 transition-colors">
-                        <td className="py-3 px-3 font-semibold">{o.orderNumber}</td>
-                        <td className="py-3 px-3 text-ink-500">{o.orderDate}</td>
-                        <td className="py-3 px-3 font-serif-kr">{o.recipientName}</td>
-                        <td className="py-3 px-3 font-serif-kr">
+                        <td className="py-3.5 px-4 font-bold text-ink-900 whitespace-nowrap">{o.orderNumber}</td>
+                        <td className="py-3.5 px-4 text-ink-600 whitespace-nowrap">{o.orderDate}</td>
+                        <td className="py-3.5 px-4 font-serif-kr font-semibold text-ink-900 whitespace-nowrap">{o.recipientName}</td>
+                        <td className="py-3.5 px-4 font-serif-kr font-medium text-ink-900 break-keep min-w-[240px]">
                           {o.items[0]?.name} {o.items.length > 1 ? `외 ${o.items.length - 1}건` : ''}
                         </td>
-                        <td className="py-3 px-3 font-bold text-lacquer">
+                        <td className="py-3.5 px-4 font-bold text-lacquer whitespace-nowrap">
                           {o.finalPrice.toLocaleString()}원
                         </td>
-                        <td className="py-3 px-3 font-serif-kr">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 text-[11px] border ${
+                        <td className="py-3.5 px-4 font-serif-kr whitespace-nowrap">
+                          <div className="flex items-center gap-2 whitespace-nowrap">
+                            <span className={`inline-flex items-center justify-center px-2.5 py-1 text-xs font-semibold border whitespace-nowrap ${
                               o.status === '결제완료'
                                 ? 'bg-amber-50 text-amber-800 border-amber-300'
                                 : o.status === '배송중'
                                 ? 'bg-blue-50 text-blue-800 border-blue-300'
                                 : o.status === '반품신청'
                                 ? 'bg-rose-50 text-rose-800 border-rose-300 font-bold'
-                                : 'bg-paper-200 text-ink-800 border-paper-300'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-300'
                             }`}>
                               {o.status}
                             </span>
                             <select
                               value={o.status}
                               onChange={(e) => updateOrderStatus(o.id, e.target.value as OrderStatus)}
-                              className="bg-white border border-paper-300 px-1.5 py-0.5 text-[11px] text-ink-700 focus:outline-none focus:border-ink-900"
+                              className="bg-white border border-paper-300 px-2.5 py-1 text-xs font-medium text-ink-800 focus:outline-none focus:border-ink-900 cursor-pointer"
                               title="상태 변경 시 Supabase dashboard_orders 및 orders 테이블에 즉시 반영됩니다"
                             >
                               <option value="결제완료">결제완료</option>
@@ -1656,22 +1670,22 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
 
         {/* 2. ORDERS TAB (주문/배송/환불 관리) */}
         {activeTab === 'ORDERS' && (
-          <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
-            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 pb-3 border-b border-paper-300">
+          <div className="bg-white border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 pb-4 border-b border-paper-300">
               <div>
-                <h2 className="text-base font-serif-kr font-semibold text-ink-900">
+                <h2 className="text-lg font-serif-kr font-bold text-ink-900">
                   주문 / 배송 / 환불 통합 처리
                 </h2>
-                <p className="text-xs text-ink-500 font-serif-kr mt-0.5">
-                  상태 변경, 송장 번호 발급, 반품 승인 및 세금계산서 원클릭 발행 (Supabase <code className="font-sans text-ink-800">dashboard_orders</code> · <code className="font-sans text-ink-800">orders</code> 연동)
+                <p className="text-xs text-ink-600 font-serif-kr mt-1">
+                  상태 변경, 송장 번호 발급, 반품 승인 및 세금계산서 원클릭 발행 (Supabase <code className="font-sans font-semibold text-ink-900">dashboard_orders</code> · <code className="font-sans font-semibold text-ink-900">orders</code> 연동)
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-ink-500 font-serif-kr mr-2">총 {orders.length}건</span>
+              <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">
+                <span className="text-xs font-semibold text-ink-700 font-serif-kr mr-2">총 {orders.length}건</span>
                 <button
                   type="button"
                   onClick={handleCopyDashboardSql}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-500 bg-amber-50 text-amber-900 text-xs font-serif-kr font-semibold hover:bg-amber-100 transition-colors"
+                  className="flex items-center gap-1.5 px-3.5 py-2 border border-amber-500 bg-amber-50 text-amber-900 text-xs font-serif-kr font-semibold hover:bg-amber-100 transition-colors whitespace-nowrap"
                 >
                   <Database className="w-3.5 h-3.5 text-amber-700" />
                   대시보드/주문 SQL 복사
@@ -1680,7 +1694,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                   type="button"
                   onClick={handleRefreshDashboardFromSupabase}
                   disabled={isSyncingDashboard}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-paper-300 bg-white text-ink-800 text-xs font-serif-kr hover:border-ink-900 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3.5 py-2 border border-paper-300 bg-white text-ink-800 text-xs font-serif-kr font-medium hover:border-ink-900 transition-colors disabled:opacity-50 whitespace-nowrap"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDashboard ? 'animate-spin' : ''}`} />
                   주문 DB 동기화
@@ -1689,7 +1703,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                   type="button"
                   onClick={handleSyncDashboardToSupabase}
                   disabled={isSyncingDashboard}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-ink-900 text-paper-50 text-xs font-serif-kr hover:bg-lacquer transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-ink-900 text-paper-50 text-xs font-serif-kr font-semibold hover:bg-lacquer transition-colors disabled:opacity-50 whitespace-nowrap"
                 >
                   <UploadCloud className="w-3.5 h-3.5" />
                   {isSyncingDashboard ? '저장 중...' : '주문 전체 DB 저장'}
@@ -1698,65 +1712,64 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-paper-200 text-ink-700 font-serif-kr">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-paper-200 text-ink-900 font-serif-kr border-y border-paper-300 whitespace-nowrap">
                   <tr>
-                    <th className="py-3 px-3">주문번호 / 일시</th>
-                    <th className="py-3 px-3">수령인 / 연락처</th>
-                    <th className="py-3 px-3">주문 상품</th>
-                    <th className="py-3 px-3">결제 정보</th>
-                    <th className="py-3 px-3">배송 처리 / 송장등록</th>
-                    <th className="py-3 px-3">상태 변경 & 액션</th>
+                    <th className="py-3.5 px-4 font-bold">주문번호 / 일시</th>
+                    <th className="py-3.5 px-4 font-bold">수령인 / 연락처</th>
+                    <th className="py-3.5 px-4 font-bold min-w-[260px]">주문 상품</th>
+                    <th className="py-3.5 px-4 font-bold">결제 정보</th>
+                    <th className="py-3.5 px-4 font-bold">배송 처리 / 송장등록</th>
+                    <th className="py-3.5 px-4 font-bold">상태 변경 & 액션</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-paper-200 font-sans">
                   {orders.map((order) => (
                     <tr key={order.id} className="hover:bg-paper-50 transition-colors">
-                      <td className="py-3.5 px-3">
-                        <span className="font-semibold text-ink-900 block">{order.orderNumber}</span>
-                        <span className="text-[11px] text-ink-500">{order.orderDate}</span>
+                      <td className="py-4 px-4 whitespace-nowrap">
+                        <span className="font-bold text-ink-900 block">{order.orderNumber}</span>
+                        <span className="text-xs text-ink-500 mt-0.5 block">{order.orderDate}</span>
                       </td>
 
-                      <td className="py-3.5 px-3 font-serif-kr">
-                        <span className="font-medium text-ink-900 block">{order.recipientName}</span>
-                        <span className="text-[11px] text-ink-500 font-sans">{order.recipientPhone}</span>
-                        <span className="text-[10px] text-ink-400 block truncate max-w-[150px]">{order.address}</span>
+                      <td className="py-4 px-4 font-serif-kr whitespace-nowrap">
+                        <span className="font-bold text-ink-900 block">{order.recipientName}</span>
+                        <span className="text-xs text-ink-600 font-sans block mt-0.5">{order.recipientPhone}</span>
+                        <span className="text-xs text-ink-500 block max-w-[220px] truncate">{order.address}</span>
                       </td>
 
-                      <td className="py-3.5 px-3 font-serif-kr">
+                      <td className="py-4 px-4 font-serif-kr min-w-[260px] break-keep">
                         {order.items.map((i, idx) => (
-                          <div key={idx} className="text-[11px]">
-                            {i.name} ({i.color}/{i.size}) × {i.quantity}
+                          <div key={idx} className="text-sm font-medium text-ink-900">
+                            {i.name} <span className="text-xs text-ink-600">({i.color}/{i.size}) × {i.quantity}</span>
                           </div>
                         ))}
                       </td>
 
-                      <td className="py-3.5 px-3">
-                        <span className="font-bold text-lacquer block">{order.finalPrice.toLocaleString()}원</span>
-                        <span className="text-[10px] text-ink-500 font-serif-kr">
+                      <td className="py-4 px-4 whitespace-nowrap">
+                        <span className="font-bold text-lacquer text-base block">{order.finalPrice.toLocaleString()}원</span>
+                        <span className="text-xs text-ink-600 font-serif-kr">
                           {order.paymentMethod}
                           {order.usedPoints ? ` (P:${order.usedPoints.toLocaleString()})` : ''}
                         </span>
                       </td>
 
-                      <td className="py-3.5 px-3">
+                      <td className="py-4 px-4 whitespace-nowrap">
                         {order.trackingNumber ? (
-                          <div className="text-[11px] text-blue-700 font-medium">
-                            {order.trackingCarrier} <br />
-                            {order.trackingNumber}
+                          <div className="text-xs text-blue-800 font-semibold bg-blue-50 border border-blue-200 px-2.5 py-1.5 inline-block">
+                            {order.trackingCarrier} · {order.trackingNumber}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
                             <input
                               type="text"
                               placeholder="송장번호 입력"
                               value={trackingInput[order.id] || ''}
                               onChange={(e) => setTrackingInput({ ...trackingInput, [order.id]: e.target.value })}
-                              className="w-28 bg-paper-50 border border-paper-300 px-2 py-1 text-xs"
+                              className="w-32 bg-paper-50 border border-paper-300 px-2.5 py-1.5 text-xs"
                             />
                             <button
                               onClick={() => handleSaveTracking(order.id)}
-                              className="px-2 py-1 bg-ink-900 text-paper-100 hover:bg-lacquer text-[11px] font-serif-kr whitespace-nowrap"
+                              className="px-3 py-1.5 bg-ink-900 text-paper-100 hover:bg-lacquer text-xs font-serif-kr font-medium whitespace-nowrap"
                             >
                               등록
                             </button>
@@ -1764,12 +1777,12 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                         )}
                       </td>
 
-                      <td className="py-3.5 px-3">
-                        <div className="flex flex-col gap-1.5">
+                      <td className="py-4 px-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           <select
                             value={order.status}
                             onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
-                            className="bg-paper-50 border border-paper-300 px-2 py-1 text-[11px] font-serif-kr"
+                            className="bg-white border border-paper-300 px-2.5 py-1.5 text-xs font-serif-kr font-medium text-ink-900 cursor-pointer"
                           >
                             <option value="결제완료">결제완료</option>
                             <option value="상품준비중">상품준비중</option>
@@ -1783,15 +1796,15 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                           {order.status === '반품신청' && (
                             <button
                               onClick={() => handleApproveRefund(order.id)}
-                              className="px-2 py-1 bg-rose-700 hover:bg-rose-800 text-white text-[11px] font-serif-kr"
+                              className="px-2.5 py-1.5 bg-rose-700 hover:bg-rose-800 text-white text-xs font-serif-kr font-semibold whitespace-nowrap"
                             >
-                              환불 승인하기
+                              환불 승인
                             </button>
                           )}
 
                           <button
                             onClick={() => handleIssueTaxInvoice(order)}
-                            className="px-2 py-0.5 border border-paper-400 hover:bg-paper-200 text-ink-700 text-[10px] font-serif-kr"
+                            className="px-2.5 py-1.5 border border-paper-400 bg-paper-50 hover:bg-paper-200 text-ink-800 text-xs font-serif-kr font-medium whitespace-nowrap"
                           >
                             세금명세서 발행
                           </button>
@@ -2156,15 +2169,15 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
 
         {/* 4. MATERIALS TAB (원부자재 ERP - Supabase materials 테이블 연동) */}
         {activeTab === 'MATERIALS' && (
-          <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
-            <div className="flex flex-wrap justify-between items-center gap-3 pb-3 border-b border-paper-300">
+          <div className="bg-white border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
+            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 pb-4 border-b border-paper-300">
               <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-serif-kr font-semibold text-ink-900">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h2 className="text-lg font-serif-kr font-bold text-ink-900 whitespace-nowrap">
                     원부자재 수급 및 재고 관리 (ERP)
                   </h2>
                   <span
-                    className={`text-[10px] px-2 py-0.5 border font-serif-kr ${
+                    className={`text-xs px-2.5 py-0.5 border font-serif-kr font-semibold whitespace-nowrap ${
                       isSupabaseConfigured()
                         ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                         : 'bg-amber-50 border-amber-300 text-amber-800'
@@ -2175,14 +2188,14 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                       : '로컬 모드'}
                   </span>
                 </div>
-                <p className="text-xs text-ink-500 font-serif-kr mt-0.5">
+                <p className="text-xs text-ink-600 font-serif-kr mt-1">
                   진주 생사 명주실, 몽골 캐시미어, 솔리드 브라스 버클 등 원자재 안전재고 실시간 DB 저장 및 발주 연동
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">
                 <button
                   onClick={handleCopyMaterialsPoSql}
-                  className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                  className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-400 text-amber-900 text-xs font-serif-kr font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   title="Supabase SQL Editor용 materials & purchase_orders 테이블 생성 SQL 복사"
                 >
                   <Database className="w-3.5 h-3.5 text-amber-700" />
@@ -2193,7 +2206,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                     <button
                       onClick={handleRefreshErpFromSupabase}
                       disabled={isSyncingErp}
-                      className="px-2.5 py-1.5 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                      className="px-3.5 py-2 bg-white hover:bg-paper-100 border border-paper-300 text-ink-800 text-xs font-serif-kr font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isSyncingErp ? 'animate-spin' : ''}`} />
                       <span>DB 동기화</span>
@@ -2201,7 +2214,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                     <button
                       onClick={handleSyncAllErpToSupabase}
                       disabled={isSyncingErp}
-                      className="px-2.5 py-1.5 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                      className="px-3.5 py-2 bg-white hover:bg-paper-100 border border-paper-300 text-ink-800 text-xs font-serif-kr font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
                     >
                       <UploadCloud className="w-3.5 h-3.5 text-lacquer" />
                       <span>전체 DB 업로드</span>
@@ -2210,7 +2223,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                 )}
                 <button
                   onClick={handleOpenCreateMatModal}
-                  className="px-3 py-1.5 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr flex items-center gap-1"
+                  className="px-4 py-2 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr font-semibold flex items-center gap-1.5 whitespace-nowrap shadow-xs"
                 >
                   <Plus className="w-3.5 h-3.5" /> 원부자재 신규등록
                 </button>
@@ -2218,55 +2231,65 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-paper-200 text-ink-700 font-serif-kr">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-paper-200 text-ink-900 font-serif-kr border-y border-paper-300 whitespace-nowrap">
                   <tr>
-                    <th className="py-2.5 px-3">자재코드</th>
-                    <th className="py-2.5 px-3">자재 품목명</th>
-                    <th className="py-2.5 px-3">분류</th>
-                    <th className="py-2.5 px-3">단위</th>
-                    <th className="py-2.5 px-3">현재고 / 안전재고 (DB 즉시반영)</th>
-                    <th className="py-2.5 px-3">단가</th>
-                    <th className="py-2.5 px-3">사입/공급처</th>
-                    <th className="py-2.5 px-3">상태</th>
-                    <th className="py-2.5 px-3 text-right">관리 / 발주연동</th>
+                    <th className="py-3.5 px-4 font-bold">자재코드</th>
+                    <th className="py-3.5 px-4 font-bold min-w-[270px]">자재 품목명</th>
+                    <th className="py-3.5 px-4 font-bold">분류</th>
+                    <th className="py-3.5 px-4 font-bold">단위</th>
+                    <th className="py-3.5 px-4 font-bold">현재고 / 안전재고 (DB 즉시반영)</th>
+                    <th className="py-3.5 px-4 font-bold">단가</th>
+                    <th className="py-3.5 px-4 font-bold">사입 / 공급처</th>
+                    <th className="py-3.5 px-4 font-bold text-center">상태</th>
+                    <th className="py-3.5 px-4 font-bold text-right">관리 / 발주연동</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-paper-200 font-sans">
                   {materials.map((m) => {
                     const isLow = m.currentStock <= m.safeStock;
                     return (
-                      <tr key={m.id} className="hover:bg-paper-50">
-                        <td className="py-3 px-3 font-semibold text-ink-600">{m.code}</td>
-                        <td className="py-3 px-3 font-serif-kr font-medium text-ink-900">{m.name}</td>
-                        <td className="py-3 px-3 font-serif-kr">{m.category}</td>
-                        <td className="py-3 px-3">{m.unit}</td>
-                        <td className="py-3 px-3">
-                          <div className="flex items-center gap-2">
-                            <div>
-                              <span className={`font-bold ${isLow ? 'text-rose-600' : 'text-ink-900'}`}>
+                      <tr key={m.id} className="hover:bg-paper-50 transition-colors">
+                        <td className="py-4 px-4 font-mono font-bold text-ink-800 whitespace-nowrap">
+                          {m.code}
+                        </td>
+                        <td className="py-4 px-4 font-serif-kr font-bold text-ink-900 min-w-[270px] break-keep">
+                          {m.name}
+                        </td>
+                        <td className="py-4 px-4 font-serif-kr font-medium text-ink-800 whitespace-nowrap">
+                          <span className="px-2.5 py-1 bg-paper-100 border border-paper-300 text-xs rounded-xs whitespace-nowrap">
+                            {m.category}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 font-medium text-ink-700 whitespace-nowrap">
+                          {m.unit}
+                        </td>
+                        <td className="py-4 px-4 whitespace-nowrap">
+                          <div className="flex items-center gap-3 whitespace-nowrap">
+                            <div className="min-w-[68px]">
+                              <span className={`text-base font-bold ${isLow ? 'text-rose-600' : 'text-ink-900'}`}>
                                 {m.currentStock}
                               </span>
-                              <span className="text-ink-400"> / {m.safeStock}</span>
+                              <span className="text-xs text-ink-500 font-medium"> / {m.safeStock}</span>
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 whitespace-nowrap">
                               <button
                                 onClick={() => handleAdjustMaterialStock(m, -1)}
-                                className="w-5 h-5 flex items-center justify-center bg-paper-200 border border-paper-300 hover:bg-paper-300 text-[11px]"
+                                className="w-6 h-6 flex items-center justify-center bg-paper-100 border border-paper-300 hover:bg-paper-300 text-xs font-bold text-ink-800"
                                 title="1 감소 (Supabase 즉시 반영)"
                               >
                                 -
                               </button>
                               <button
                                 onClick={() => handleAdjustMaterialStock(m, 1)}
-                                className="w-5 h-5 flex items-center justify-center bg-paper-200 border border-paper-300 hover:bg-paper-300 text-[11px]"
+                                className="w-6 h-6 flex items-center justify-center bg-paper-100 border border-paper-300 hover:bg-paper-300 text-xs font-bold text-ink-800"
                                 title="1 증가 (Supabase 즉시 반영)"
                               >
                                 +
                               </button>
                               <button
                                 onClick={() => handleAdjustMaterialStock(m, 10)}
-                                className="px-1.5 py-0.5 bg-paper-200 border border-paper-300 hover:bg-paper-300 text-[10px] font-serif-kr"
+                                className="px-2 h-6 flex items-center justify-center bg-paper-100 border border-paper-300 hover:bg-paper-300 text-xs font-bold text-ink-800"
                                 title="10 입고 (Supabase 즉시 반영)"
                               >
                                 +10
@@ -2274,41 +2297,45 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 px-3">{m.unitCost.toLocaleString()}원</td>
-                        <td className="py-3 px-3 font-serif-kr">{m.supplier}</td>
-                        <td className="py-3 px-3 font-serif-kr">
+                        <td className="py-4 px-4 font-bold text-ink-900 whitespace-nowrap">
+                          {m.unitCost.toLocaleString()}원
+                        </td>
+                        <td className="py-4 px-4 font-serif-kr font-medium text-ink-800 whitespace-nowrap">
+                          {m.supplier}
+                        </td>
+                        <td className="py-4 px-4 font-serif-kr text-center whitespace-nowrap">
                           {isLow ? (
-                            <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
+                            <span className="inline-flex items-center justify-center px-3 py-1 bg-rose-50 text-rose-700 border border-rose-300 text-xs font-bold rounded-xs whitespace-nowrap">
                               재고부족 (발주요망)
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
+                            <span className="inline-flex items-center justify-center px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold rounded-xs whitespace-nowrap">
                               정상
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-3 text-right">
-                          <div className="inline-flex items-center gap-1 font-serif-kr">
+                        <td className="py-4 px-4 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1.5 font-serif-kr whitespace-nowrap">
                             <button
                               onClick={() => handleQuickOrderFromMaterial(m)}
-                              className="px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-[11px]"
+                              className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-400 text-amber-900 text-xs font-semibold rounded-xs whitespace-nowrap transition-colors"
                               title="이 원부자재로 발주서 즉시 작성"
                             >
                               발주서 발행
                             </button>
                             <button
                               onClick={() => handleOpenEditMatModal(m)}
-                              className="p-1 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-700"
+                              className="p-1.5 bg-paper-100 hover:bg-paper-200 border border-paper-300 text-ink-800 rounded-xs transition-colors"
                               title="자재 정보 수정"
                             >
-                              <Edit className="w-3.5 h-3.5" />
+                              <Edit className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteMaterial(m)}
-                              className="p-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700"
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-700 rounded-xs transition-colors"
                               title="자재 삭제"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         </td>
@@ -2323,15 +2350,15 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
 
         {/* 5. PURCHASE TAB (공방 발주 관리 - Supabase purchase_orders 테이블 연동) */}
         {activeTab === 'PURCHASE' && (
-          <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
-            <div className="flex flex-wrap justify-between items-center gap-3 pb-3 border-b border-paper-300">
+          <div className="bg-white border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
+            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 pb-4 border-b border-paper-300">
               <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-serif-kr font-semibold text-ink-900">
-                    전주이씨 아틀리에 & 공방 발주 관리
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h2 className="text-lg font-serif-kr font-bold text-ink-900 whitespace-nowrap">
+                    전주이씨 아틀리에 &amp; 공방 발주 관리
                   </h2>
                   <span
-                    className={`text-[10px] px-2 py-0.5 border font-serif-kr ${
+                    className={`text-xs px-2.5 py-0.5 border font-serif-kr font-semibold whitespace-nowrap ${
                       isSupabaseConfigured()
                         ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                         : 'bg-amber-50 border-amber-300 text-amber-800'
@@ -2342,14 +2369,14 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                       : '로컬 모드'}
                   </span>
                 </div>
-                <p className="text-xs text-ink-500 font-serif-kr mt-0.5">
+                <p className="text-xs text-ink-600 font-serif-kr mt-1">
                   완제품 생산 및 원부자재 발주서 발행, 납기 일정 추적 (입고완료 변경 시 원부자재 재고 자동 가산)
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">
                 <button
                   onClick={handleCopyMaterialsPoSql}
-                  className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                  className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-400 text-amber-900 text-xs font-serif-kr font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   title="Supabase SQL Editor용 materials & purchase_orders 테이블 생성 SQL 복사"
                 >
                   <Database className="w-3.5 h-3.5 text-amber-700" />
@@ -2360,7 +2387,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                     <button
                       onClick={handleRefreshErpFromSupabase}
                       disabled={isSyncingErp}
-                      className="px-2.5 py-1.5 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                      className="px-3.5 py-2 bg-white hover:bg-paper-100 border border-paper-300 text-ink-800 text-xs font-serif-kr font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isSyncingErp ? 'animate-spin' : ''}`} />
                       <span>DB 동기화</span>
@@ -2368,7 +2395,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                     <button
                       onClick={handleSyncAllErpToSupabase}
                       disabled={isSyncingErp}
-                      className="px-2.5 py-1.5 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                      className="px-3.5 py-2 bg-white hover:bg-paper-100 border border-paper-300 text-ink-800 text-xs font-serif-kr font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
                     >
                       <UploadCloud className="w-3.5 h-3.5 text-lacquer" />
                       <span>전체 DB 업로드</span>
@@ -2377,7 +2404,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                 )}
                 <button
                   onClick={() => setShowPOModal(true)}
-                  className="px-3 py-1.5 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr flex items-center gap-1"
+                  className="px-4 py-2 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr font-semibold flex items-center gap-1.5 whitespace-nowrap shadow-xs"
                 >
                   <Plus className="w-3.5 h-3.5" /> 신규 발주서 등록
                 </button>
@@ -2385,39 +2412,43 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-paper-200 text-ink-700 font-serif-kr">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-paper-200 text-ink-900 font-serif-kr border-y border-paper-300 whitespace-nowrap">
                   <tr>
-                    <th className="py-2.5 px-3">발주번호</th>
-                    <th className="py-2.5 px-3">구분</th>
-                    <th className="py-2.5 px-3">발주 품목</th>
-                    <th className="py-2.5 px-3">제작/공급처</th>
-                    <th className="py-2.5 px-3">수량</th>
-                    <th className="py-2.5 px-3">단가</th>
-                    <th className="py-2.5 px-3">총 발주금액</th>
-                    <th className="py-2.5 px-3">입고예정일</th>
-                    <th className="py-2.5 px-3">진행 상태 (DB 저장)</th>
-                    <th className="py-2.5 px-3 text-right">관리</th>
+                    <th className="py-3.5 px-4 font-bold">발주번호</th>
+                    <th className="py-3.5 px-4 font-bold">구분</th>
+                    <th className="py-3.5 px-4 font-bold min-w-[240px]">발주 품목</th>
+                    <th className="py-3.5 px-4 font-bold">제작 / 공급처</th>
+                    <th className="py-3.5 px-4 font-bold">수량</th>
+                    <th className="py-3.5 px-4 font-bold">단가</th>
+                    <th className="py-3.5 px-4 font-bold">총 발주금액</th>
+                    <th className="py-3.5 px-4 font-bold">입고예정일</th>
+                    <th className="py-3.5 px-4 font-bold">진행 상태 (DB 저장)</th>
+                    <th className="py-3.5 px-4 font-bold text-right">관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-paper-200 font-sans">
                   {purchaseOrders.map((po) => (
-                    <tr key={po.id} className="hover:bg-paper-50">
-                      <td className="py-3 px-3 font-semibold">{po.poNumber}</td>
-                      <td className="py-3 px-3 font-serif-kr">{po.itemType}</td>
-                      <td className="py-3 px-3 font-serif-kr font-medium text-ink-900">{po.itemName}</td>
-                      <td className="py-3 px-3 font-serif-kr">{po.supplier}</td>
-                      <td className="py-3 px-3 font-bold">{po.quantity.toLocaleString()}</td>
-                      <td className="py-3 px-3 text-ink-600">{po.unitCost.toLocaleString()}원</td>
-                      <td className="py-3 px-3 text-lacquer font-bold">{po.totalCost.toLocaleString()}원</td>
-                      <td className="py-3 px-3 text-ink-500">{po.expectedDate}</td>
-                      <td className="py-3 px-3 font-serif-kr">
+                    <tr key={po.id} className="hover:bg-paper-50 transition-colors">
+                      <td className="py-4 px-4 font-mono font-bold text-ink-900 whitespace-nowrap">{po.poNumber}</td>
+                      <td className="py-4 px-4 font-serif-kr whitespace-nowrap">
+                        <span className="px-2.5 py-1 bg-paper-100 border border-paper-300 text-xs font-medium rounded-xs">
+                          {po.itemType}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4 font-serif-kr font-bold text-ink-900 min-w-[240px] break-keep">{po.itemName}</td>
+                      <td className="py-4 px-4 font-serif-kr font-medium text-ink-800 whitespace-nowrap">{po.supplier}</td>
+                      <td className="py-4 px-4 font-bold text-ink-900 whitespace-nowrap">{po.quantity.toLocaleString()}</td>
+                      <td className="py-4 px-4 font-medium text-ink-700 whitespace-nowrap">{po.unitCost.toLocaleString()}원</td>
+                      <td className="py-4 px-4 text-lacquer font-bold whitespace-nowrap">{po.totalCost.toLocaleString()}원</td>
+                      <td className="py-4 px-4 text-ink-600 whitespace-nowrap">{po.expectedDate}</td>
+                      <td className="py-4 px-4 font-serif-kr whitespace-nowrap">
                         <select
                           value={po.status}
                           onChange={(e) =>
                             handleUpdatePOStatus(po, e.target.value as PurchaseOrder['status'])
                           }
-                          className="bg-paper-50 border border-paper-300 px-2 py-0.5 text-[11px]"
+                          className="bg-white border border-paper-300 px-2.5 py-1 text-xs font-semibold text-ink-900 cursor-pointer"
                         >
                           <option value="발주대기">발주대기</option>
                           <option value="발주승인">발주승인</option>
@@ -2426,13 +2457,13 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                           <option value="발주취소">발주취소</option>
                         </select>
                       </td>
-                      <td className="py-3 px-3 text-right">
+                      <td className="py-4 px-4 text-right whitespace-nowrap">
                         <button
                           onClick={() => handleDeletePO(po)}
-                          className="p-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700"
+                          className="p-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-700 rounded-xs transition-colors"
                           title="발주서 삭제"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>
@@ -2445,48 +2476,48 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
 
         {/* 6. TAX TAB (세금명세서 관리) */}
         {activeTab === 'TAX' && (
-          <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
-            <div className="flex justify-between items-center pb-3 border-b border-paper-300">
+          <div className="bg-white border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
+            <div className="flex justify-between items-center pb-4 border-b border-paper-300">
               <div>
-                <h2 className="text-base font-serif-kr font-semibold text-ink-900">
+                <h2 className="text-lg font-serif-kr font-bold text-ink-900">
                   전자세금계산서 / 세금명세서 관리
                 </h2>
-                <p className="text-xs text-ink-500 font-serif-kr mt-0.5">
+                <p className="text-xs text-ink-600 font-serif-kr mt-1">
                   법인 및 개인 고객 전자세금계산서 발행 내역 및 원클릭 인쇄/출력
                 </p>
               </div>
-              <span className="text-xs text-ink-500 font-serif-kr">총 {taxes.length}건 발행</span>
+              <span className="text-xs font-semibold text-ink-700 font-serif-kr whitespace-nowrap">총 {taxes.length}건 발행</span>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-paper-200 text-ink-700 font-serif-kr">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-paper-200 text-ink-900 font-serif-kr border-y border-paper-300 whitespace-nowrap">
                   <tr>
-                    <th className="py-2.5 px-3">승인번호</th>
-                    <th className="py-2.5 px-3">발행일자</th>
-                    <th className="py-2.5 px-3">공급받는 자</th>
-                    <th className="py-2.5 px-3">공급가액</th>
-                    <th className="py-2.5 px-3">세액 (10%)</th>
-                    <th className="py-2.5 px-3">합계금액</th>
-                    <th className="py-2.5 px-3">출력 및 상태</th>
+                    <th className="py-3.5 px-4 font-bold">승인번호</th>
+                    <th className="py-3.5 px-4 font-bold">발행일자</th>
+                    <th className="py-3.5 px-4 font-bold">공급받는 자</th>
+                    <th className="py-3.5 px-4 font-bold">공급가액</th>
+                    <th className="py-3.5 px-4 font-bold">세액 (10%)</th>
+                    <th className="py-3.5 px-4 font-bold">합계금액</th>
+                    <th className="py-3.5 px-4 font-bold">출력 및 상태</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-paper-200 font-sans">
                   {taxes.map((t) => (
-                    <tr key={t.id} className="hover:bg-paper-50">
-                      <td className="py-3 px-3 font-semibold text-ink-900">{t.invoiceNumber}</td>
-                      <td className="py-3 px-3 text-ink-500">{t.issueDate}</td>
-                      <td className="py-3 px-3 font-serif-kr">
-                        <span className="font-medium text-ink-900 block">{t.recipientInfo.companyName}</span>
-                        <span className="text-[10px] text-ink-400 font-sans">{t.recipientInfo.bizNumber}</span>
+                    <tr key={t.id} className="hover:bg-paper-50 transition-colors">
+                      <td className="py-4 px-4 font-mono font-bold text-ink-900 whitespace-nowrap">{t.invoiceNumber}</td>
+                      <td className="py-4 px-4 text-ink-600 whitespace-nowrap">{t.issueDate}</td>
+                      <td className="py-4 px-4 font-serif-kr whitespace-nowrap">
+                        <span className="font-bold text-ink-900 block">{t.recipientInfo.companyName}</span>
+                        <span className="text-xs text-ink-500 font-sans">{t.recipientInfo.bizNumber}</span>
                       </td>
-                      <td className="py-3 px-3">{t.supplyAmount.toLocaleString()}원</td>
-                      <td className="py-3 px-3 text-ink-500">{t.taxAmount.toLocaleString()}원</td>
-                      <td className="py-3 px-3 font-bold text-lacquer">{t.totalAmount.toLocaleString()}원</td>
-                      <td className="py-3 px-3">
+                      <td className="py-4 px-4 font-medium text-ink-900 whitespace-nowrap">{t.supplyAmount.toLocaleString()}원</td>
+                      <td className="py-4 px-4 text-ink-600 whitespace-nowrap">{t.taxAmount.toLocaleString()}원</td>
+                      <td className="py-4 px-4 font-bold text-lacquer whitespace-nowrap">{t.totalAmount.toLocaleString()}원</td>
+                      <td className="py-4 px-4 whitespace-nowrap">
                         <button
                           onClick={() => setPrintInvoice(t)}
-                          className="px-2.5 py-1 bg-paper-200 border border-paper-300 hover:bg-paper-300 text-ink-800 text-[11px] font-serif-kr flex items-center gap-1"
+                          className="px-3 py-1.5 bg-paper-100 border border-paper-300 hover:bg-paper-200 text-ink-900 text-xs font-serif-kr font-semibold inline-flex items-center gap-1.5 whitespace-nowrap"
                         >
                           <Printer className="w-3.5 h-3.5" /> 명세서 인쇄
                         </button>
@@ -2501,25 +2532,25 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
 
         {/* 7. MEMBERS TAB (회원 & 포인트 관리) */}
         {activeTab === 'MEMBERS' && (
-          <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
-            <div className="flex flex-wrap justify-between items-center gap-3 pb-3 border-b border-paper-300">
+          <div className="bg-white border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
+            <div className="flex flex-wrap justify-between items-center gap-4 pb-4 border-b border-paper-300">
               <div>
-                <h2 className="text-base font-serif-kr font-semibold text-ink-900">
+                <h2 className="text-lg font-serif-kr font-bold text-ink-900">
                   회원 계정(이메일/비밀번호) 및 포인트 관리 (Supabase members 연동)
                 </h2>
-                <p className="text-xs text-ink-500 font-serif-kr mt-0.5">
+                <p className="text-xs text-ink-600 font-serif-kr mt-1">
                   cpzyrpaenvzfshqqpmrf.supabase.co 의 members 테이블과 실시간 연동되며, 가입한 이메일과 비밀번호를 확인·동기화합니다.
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-ink-500 font-serif-kr mr-1">총 {allUsers.length}명</span>
+              <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">
+                <span className="text-xs font-semibold text-ink-700 font-serif-kr mr-1">총 {allUsers.length}명</span>
                 <button
                   type="button"
                   onClick={async () => {
                     await refreshMembers();
                     showToast('Supabase members 테이블에서 최신 회원 목록을 불러왔습니다.');
                   }}
-                  className="px-3 py-1.5 bg-paper-200 border border-paper-300 hover:bg-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1.5 transition-colors"
+                  className="px-3.5 py-2 bg-white border border-paper-300 hover:bg-paper-100 text-ink-800 text-xs font-serif-kr font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>DB 회원 새로고침</span>
@@ -2534,7 +2565,7 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
                       showToast(res.message, 'error');
                     }
                   }}
-                  className="px-3 py-1.5 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr flex items-center gap-1.5 transition-colors"
+                  className="px-4 py-2 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap"
                 >
                   <UploadCloud className="w-3.5 h-3.5" />
                   <span>회원 전체 Supabase 업로드</span>
@@ -2543,42 +2574,42 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-paper-200 text-ink-700 font-serif-kr">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-paper-200 text-ink-900 font-serif-kr border-y border-paper-300 whitespace-nowrap">
                   <tr>
-                    <th className="py-2.5 px-3">성명</th>
-                    <th className="py-2.5 px-3">이메일 계정 (email)</th>
-                    <th className="py-2.5 px-3">비밀번호 (password)</th>
-                    <th className="py-2.5 px-3">연락처</th>
-                    <th className="py-2.5 px-3">등급</th>
-                    <th className="py-2.5 px-3">보유 포인트</th>
-                    <th className="py-2.5 px-3">권한</th>
-                    <th className="py-2.5 px-3">포인트 조정</th>
+                    <th className="py-3.5 px-4 font-bold">성명</th>
+                    <th className="py-3.5 px-4 font-bold">이메일 계정 (email)</th>
+                    <th className="py-3.5 px-4 font-bold">비밀번호 (password)</th>
+                    <th className="py-3.5 px-4 font-bold">연락처</th>
+                    <th className="py-3.5 px-4 font-bold">등급</th>
+                    <th className="py-3.5 px-4 font-bold">보유 포인트</th>
+                    <th className="py-3.5 px-4 font-bold">권한</th>
+                    <th className="py-3.5 px-4 font-bold">포인트 조정</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-paper-200 font-sans">
                   {allUsers.map((u) => (
-                    <tr key={u.id} className="hover:bg-paper-50">
-                      <td className="py-3 px-3 font-serif-kr font-medium text-ink-900">{u.name}</td>
-                      <td className="py-3 px-3 font-mono text-ink-900 font-medium">{u.email}</td>
-                      <td className="py-3 px-3 font-mono text-emerald-800 bg-emerald-50/60">{u.password || '1234'}</td>
-                      <td className="py-3 px-3 text-ink-500">{u.phone}</td>
-                      <td className="py-3 px-3 font-serif-kr text-bronze">{u.membershipGrade || '전주이씨 가문회원'}</td>
-                      <td className="py-3 px-3 font-bold text-lacquer">{u.points.toLocaleString()}P</td>
-                      <td className="py-3 px-3 font-serif-kr">
+                    <tr key={u.id} className="hover:bg-paper-50 transition-colors">
+                      <td className="py-4 px-4 font-serif-kr font-bold text-ink-900 whitespace-nowrap">{u.name}</td>
+                      <td className="py-4 px-4 font-mono text-ink-900 font-semibold whitespace-nowrap">{u.email}</td>
+                      <td className="py-4 px-4 font-mono text-emerald-900 font-semibold bg-emerald-50/70 whitespace-nowrap">{u.password || '1234'}</td>
+                      <td className="py-4 px-4 text-ink-600 whitespace-nowrap">{u.phone}</td>
+                      <td className="py-4 px-4 font-serif-kr font-semibold text-bronze whitespace-nowrap">{u.membershipGrade || '전주이씨 가문회원'}</td>
+                      <td className="py-4 px-4 font-bold text-lacquer whitespace-nowrap">{u.points.toLocaleString()}P</td>
+                      <td className="py-4 px-4 font-serif-kr whitespace-nowrap">
                         <select
                           value={u.role}
                           onChange={(e) => adminUpdateUserRole(u.id, e.target.value as any)}
-                          className="bg-paper-50 border border-paper-300 px-1.5 py-0.5 text-[11px]"
+                          className="bg-white border border-paper-300 px-2.5 py-1 text-xs font-medium text-ink-900 cursor-pointer"
                         >
                           <option value="customer">일반고객</option>
                           <option value="admin">관리자(Admin)</option>
                         </select>
                       </td>
-                      <td className="py-3 px-3">
+                      <td className="py-4 px-4 whitespace-nowrap">
                         <button
                           onClick={() => setPointModalUser(u)}
-                          className="px-2 py-1 bg-paper-200 border border-paper-300 hover:bg-paper-300 text-ink-800 text-[11px] font-serif-kr"
+                          className="px-3 py-1.5 bg-paper-100 border border-paper-300 hover:bg-paper-200 text-ink-900 text-xs font-serif-kr font-semibold whitespace-nowrap"
                         >
                           포인트 지급/차감
                         </button>

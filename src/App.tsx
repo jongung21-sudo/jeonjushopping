@@ -211,7 +211,7 @@ export const AppContent: React.FC = () => {
       )}
 
       {/* 3. Main Contents */}
-      <main className={`flex-1 ${!isAdminView ? 'pt-16 sm:pt-20' : ''}`}>
+      <main className={`flex-1 ${!isAdminView ? 'pt-[100px] sm:pt-[104px]' : ''}`}>
         {renderRoute()}
       </main>
 
