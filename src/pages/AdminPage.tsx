@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PRODUCTS } from '../data/products';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -98,9 +98,35 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
   const [carrierInput, setCarrierInput] = useState<{ [orderId: string]: string }>({});
   const [trackingInput, setTrackingInput] = useState<{ [orderId: string]: string }>({});
 
-  // ERP 원자재 & 발주 상태
-  const [materials, setMaterials] = useState<MaterialItem[]>(INITIAL_MATERIALS);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(INITIAL_PURCHASE_ORDERS);
+  // ERP 원자재 & 발주 상태 (로컬 스토리지 + Supabase 연동)
+  const [materials, setMaterials] = useState<MaterialItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('jeonjulee_materials_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return INITIAL_MATERIALS;
+    } catch {
+      return INITIAL_MATERIALS;
+    }
+  });
+
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
+    try {
+      const saved = localStorage.getItem('jeonjulee_purchase_orders_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return INITIAL_PURCHASE_ORDERS;
+    } catch {
+      return INITIAL_PURCHASE_ORDERS;
+    }
+  });
+
+  const [isSyncingErp, setIsSyncingErp] = useState(false);
+
   const [taxes, setTaxes] = useState<TaxInvoice[]>(() => {
     try {
       const saved = localStorage.getItem('jeonjulee_taxes_v2');
@@ -131,11 +157,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
   const [newPoUnitCost, setNewPoUnitCost] = useState(150000);
   const [newPoDate, setNewPoDate] = useState('2026-03-30');
 
-  // 신규 자재 등록 모달
+  // 자재 등록 / 수정 모달
   const [showMatModal, setShowMatModal] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState<MaterialItem | null>(null);
   const [newMatName, setNewMatName] = useState('');
-  const [newMatCategory, setNewMatCategory] = useState<'원단' | '자수실' | '스트랩/버클' | '라벨/부자재' | '도자기소재'>('원단');
+  const [newMatCategory, setNewMatCategory] = useState<MaterialItem['category']>('원단');
+  const [newMatUnit, setNewMatUnit] = useState('야드(YD)');
   const [newMatStock, setNewMatStock] = useState(100);
+  const [newMatSafeStock, setNewMatSafeStock] = useState(20);
   const [newMatCost, setNewMatCost] = useState(35000);
   const [newMatSupplier, setNewMatSupplier] = useState('');
 
@@ -153,6 +182,89 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
   const [isTestingDb, setIsTestingDb] = useState(false);
 
   const totalRevenue = orders.reduce((sum, o) => sum + o.finalPrice, 0);
+
+  // 원부자재 & 발주 데이터 로컬 저장 헬퍼
+  const saveMaterialsLocal = (list: MaterialItem[]) => {
+    setMaterials(list);
+    try {
+      localStorage.setItem('jeonjulee_materials_v1', JSON.stringify(list));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const savePurchaseOrdersLocal = (list: PurchaseOrder[]) => {
+    setPurchaseOrders(list);
+    try {
+      localStorage.setItem('jeonjulee_purchase_orders_v1', JSON.stringify(list));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Supabase materials & purchase_orders 실시간 양방향 동기화
+  const syncMaterialsAndPOFromSupabase = async () => {
+    if (!isSupabaseConfigured()) return;
+    setIsSyncingErp(true);
+    try {
+      // 1. 원부자재(materials) 동기화
+      const matStatus = await dbService.checkMaterialsTableStatus();
+      if (matStatus.exists) {
+        if (matStatus.count === 0) {
+          await dbService.syncAllMaterialsToSupabase(materials);
+        } else {
+          const remoteMats = await dbService.fetchMaterials();
+          if (remoteMats && remoteMats.length > 0) {
+            const remoteIds = new Set(remoteMats.map((m) => m.id));
+            const unsyncedLocal = materials.filter((m) => !remoteIds.has(m.id));
+            if (unsyncedLocal.length > 0) {
+              for (const item of unsyncedLocal) {
+                await dbService.saveMaterial(item);
+              }
+            }
+            const merged = [...unsyncedLocal, ...remoteMats];
+            saveMaterialsLocal(merged);
+          }
+        }
+      }
+
+      // 2. 발주서(purchase_orders) 동기화
+      const poStatus = await dbService.checkPurchaseOrdersTableStatus();
+      if (poStatus.exists) {
+        if (poStatus.count === 0) {
+          await dbService.syncAllPurchaseOrdersToSupabase(purchaseOrders);
+        } else {
+          const remotePOs = await dbService.fetchPurchaseOrders();
+          if (remotePOs && remotePOs.length > 0) {
+            const remoteIds = new Set(remotePOs.map((p) => p.id));
+            const unsyncedLocal = purchaseOrders.filter((p) => !remoteIds.has(p.id));
+            if (unsyncedLocal.length > 0) {
+              for (const po of unsyncedLocal) {
+                await dbService.savePurchaseOrder(po);
+              }
+            }
+            const merged = [...unsyncedLocal, ...remotePOs];
+            savePurchaseOrdersLocal(merged);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('ERP Supabase sync error:', e);
+    } finally {
+      setIsSyncingErp(false);
+    }
+  };
+
+  useEffect(() => {
+    syncMaterialsAndPOFromSupabase();
+    const handleConnectionChange = () => {
+      syncMaterialsAndPOFromSupabase();
+    };
+    window.addEventListener('supabase-connection-changed', handleConnectionChange);
+    return () => {
+      window.removeEventListener('supabase-connection-changed', handleConnectionChange);
+    };
+  }, []);
 
   // 상품 목록 필터링
   const filteredProducts = productsList.filter((prod) => {
@@ -582,8 +694,105 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
     showToast('products 테이블 생성 SQL이 복사되었습니다! Supabase SQL Editor에 붙여넣고 Run을 실행하세요.');
   };
 
-  // 신규 발주서 등록
-  const handleCreatePO = (e: React.FormEvent) => {
+  // 원부자재/발주(materials & purchase_orders) 테이블 생성 SQL 원클릭 복사
+  const handleCopyMaterialsPoSql = () => {
+    const sql = `-- 전주이씨 (JEONJU LEE) 원부자재(materials) 및 발주관리(purchase_orders) 테이블 생성 SQL
+-- 대상 프로젝트: https://cpzyrpaenvzfshqqpmrf.supabase.co
+
+CREATE TABLE IF NOT EXISTS public.materials (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    current_stock INTEGER NOT NULL DEFAULT 0,
+    safe_stock INTEGER NOT NULL DEFAULT 20,
+    unit_cost INTEGER NOT NULL DEFAULT 0,
+    supplier TEXT NOT NULL,
+    updated_at DATE NOT NULL DEFAULT CURRENT_DATE
+);
+
+ALTER TABLE public.materials ADD COLUMN IF NOT EXISTS safe_stock INTEGER NOT NULL DEFAULT 20;
+ALTER TABLE public.materials ADD COLUMN IF NOT EXISTS unit_cost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.materials ADD COLUMN IF NOT EXISTS updated_at DATE NOT NULL DEFAULT CURRENT_DATE;
+
+ALTER TABLE public.materials ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "materials_select_policy" ON public.materials;
+CREATE POLICY "materials_select_policy" ON public.materials FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "materials_insert_policy" ON public.materials;
+CREATE POLICY "materials_insert_policy" ON public.materials FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "materials_update_policy" ON public.materials;
+CREATE POLICY "materials_update_policy" ON public.materials FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "materials_delete_policy" ON public.materials;
+CREATE POLICY "materials_delete_policy" ON public.materials FOR DELETE TO anon, authenticated USING (true);
+
+GRANT ALL ON public.materials TO anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS public.purchase_orders (
+    id TEXT PRIMARY KEY,
+    po_number TEXT UNIQUE NOT NULL,
+    item_type TEXT NOT NULL,
+    item_name TEXT NOT NULL,
+    supplier TEXT NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_cost INTEGER NOT NULL CHECK (unit_cost >= 0),
+    total_cost INTEGER NOT NULL CHECK (total_cost >= 0),
+    status TEXT NOT NULL DEFAULT '발주승인',
+    expected_date DATE NOT NULL,
+    created_at DATE NOT NULL DEFAULT CURRENT_DATE
+);
+
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS item_type TEXT NOT NULL DEFAULT '원부자재';
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS supplier TEXT NOT NULL DEFAULT '국내 공방';
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS unit_cost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS total_cost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS expected_date DATE NOT NULL DEFAULT CURRENT_DATE;
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS created_at DATE NOT NULL DEFAULT CURRENT_DATE;
+
+ALTER TABLE public.purchase_orders ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "po_select_policy" ON public.purchase_orders;
+CREATE POLICY "po_select_policy" ON public.purchase_orders FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "po_insert_policy" ON public.purchase_orders;
+CREATE POLICY "po_insert_policy" ON public.purchase_orders FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "po_update_policy" ON public.purchase_orders;
+CREATE POLICY "po_update_policy" ON public.purchase_orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "po_delete_policy" ON public.purchase_orders;
+CREATE POLICY "po_delete_policy" ON public.purchase_orders FOR DELETE TO anon, authenticated USING (true);
+
+GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
+    navigator.clipboard.writeText(sql);
+    showToast('원부자재(materials) & 발주(purchase_orders) 테이블 SQL이 복사되었습니다! SQL Editor에서 실행하세요.');
+  };
+
+  // 원부자재 & 발주 데이터 전체 DB 일괄 업로드
+  const handleSyncAllErpToSupabase = async () => {
+    setIsSyncingErp(true);
+    try {
+      const matRes = await dbService.syncAllMaterialsToSupabase(materials);
+      const poRes = await dbService.syncAllPurchaseOrdersToSupabase(purchaseOrders);
+      if (matRes.success && poRes.success) {
+        showToast(
+          `Supabase 업로드 완료! (원부자재 ${matRes.count}건 -> materials, 발주서 ${poRes.count}건 -> purchase_orders)`,
+          'success'
+        );
+      } else {
+        showToast(matRes.success ? poRes.message : matRes.message, 'error');
+      }
+    } finally {
+      setIsSyncingErp(false);
+    }
+  };
+
+  // 원부자재 & 발주 데이터 DB에서 새로고침
+  const handleRefreshErpFromSupabase = async () => {
+    await syncMaterialsAndPOFromSupabase();
+    showToast('Supabase(cpzyrpaenvzfshqqpmrf) materials 및 purchase_orders 테이블과 동기화 완료!');
+  };
+
+  // 신규 발주서 등록 (Supabase purchase_orders 테이블 즉시 저장)
+  const handleCreatePO = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPoItem.trim() || !newPoSupplier.trim()) return;
 
@@ -593,43 +802,202 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
       itemType: newPoType,
       itemName: newPoItem.trim(),
       supplier: newPoSupplier.trim(),
-      quantity: newPoQty,
-      unitCost: newPoUnitCost,
-      totalCost: newPoQty * newPoUnitCost,
+      quantity: Number(newPoQty),
+      unitCost: Number(newPoUnitCost),
+      totalCost: Number(newPoQty) * Number(newPoUnitCost),
       status: '발주승인',
       expectedDate: newPoDate,
       createdAt: new Date().toISOString().slice(0, 10),
     };
 
-    setPurchaseOrders((prev) => [newPo, ...prev]);
+    const nextList = [newPo, ...purchaseOrders];
+    savePurchaseOrdersLocal(nextList);
     setShowPOModal(false);
     setNewPoItem('');
     setNewPoSupplier('');
-    showToast(`신규 발주서(${newPo.poNumber})가 성공적으로 등록되었습니다.`);
+
+    const res = await dbService.savePurchaseOrder(newPo);
+    if (res.success) {
+      showToast(res.message, 'success');
+    } else {
+      showToast(`로컬에 발주서가 저장되었습니다. (${res.message})`, 'error');
+    }
   };
 
-  // 신규 자재 등록
-  const handleCreateMaterial = (e: React.FormEvent) => {
+  // 발주서 상태 변경 (Supabase purchase_orders 즉시 반영 + 입고완료 시 자재 재고 자동 반영)
+  const handleUpdatePOStatus = async (po: PurchaseOrder, nextStatus: PurchaseOrder['status']) => {
+    const updatedPo: PurchaseOrder = { ...po, status: nextStatus };
+    const nextList = purchaseOrders.map((item) => (item.id === po.id ? updatedPo : item));
+    savePurchaseOrdersLocal(nextList);
+
+    // 입고완료로 변경 시 동일 품목명의 원부자재가 있으면 재고 자동 가산 및 DB 저장
+    if (nextStatus === '입고완료' && po.status !== '입고완료') {
+      const matchedMat = materials.find(
+        (m) => po.itemName.includes(m.name) || m.name.includes(po.itemName)
+      );
+      if (matchedMat) {
+        const updatedMat: MaterialItem = {
+          ...matchedMat,
+          currentStock: matchedMat.currentStock + po.quantity,
+          updatedAt: new Date().toISOString().slice(0, 10),
+        };
+        const nextMats = materials.map((m) => (m.id === matchedMat.id ? updatedMat : m));
+        saveMaterialsLocal(nextMats);
+        await dbService.updateMaterial(matchedMat.id, { currentStock: updatedMat.currentStock }, updatedMat);
+      }
+    }
+
+    const res = await dbService.updatePurchaseOrder(po.id, { status: nextStatus }, updatedPo);
+    if (res.success) {
+      showToast(`발주서(${po.poNumber}) 상태가 '${nextStatus}'(으)로 Supabase에 저장되었습니다.`);
+    } else {
+      showToast(res.message, 'error');
+    }
+  };
+
+  // 발주서 삭제 (Supabase purchase_orders 즉시 삭제)
+  const handleDeletePO = async (po: PurchaseOrder) => {
+    if (!window.confirm(`발주서 [${po.poNumber}] (${po.itemName}) 항목을 삭제하시겠습니까?`)) return;
+    const nextList = purchaseOrders.filter((item) => item.id !== po.id);
+    savePurchaseOrdersLocal(nextList);
+    const res = await dbService.deletePurchaseOrder(po.id);
+    if (res.success) {
+      showToast(res.message);
+    } else {
+      showToast(res.message, 'error');
+    }
+  };
+
+  // 원부자재 등록 모달 열기
+  const handleOpenCreateMatModal = () => {
+    setEditingMaterial(null);
+    setNewMatName('');
+    setNewMatCategory('원단');
+    setNewMatUnit('야드(YD)');
+    setNewMatStock(100);
+    setNewMatSafeStock(20);
+    setNewMatCost(35000);
+    setNewMatSupplier('');
+    setShowMatModal(true);
+  };
+
+  // 원부자재 수정 모달 열기
+  const handleOpenEditMatModal = (mat: MaterialItem) => {
+    setEditingMaterial(mat);
+    setNewMatName(mat.name);
+    setNewMatCategory(mat.category);
+    setNewMatUnit(mat.unit);
+    setNewMatStock(mat.currentStock);
+    setNewMatSafeStock(mat.safeStock);
+    setNewMatCost(mat.unitCost);
+    setNewMatSupplier(mat.supplier);
+    setShowMatModal(true);
+  };
+
+  // 원부자재 품목에서 즉시 발주서 발행 모달 연동
+  const handleQuickOrderFromMaterial = (mat: MaterialItem) => {
+    setNewPoType('원부자재');
+    setNewPoItem(mat.name);
+    setNewPoSupplier(mat.supplier);
+    setNewPoQty(Math.max(20, mat.safeStock * 2));
+    setNewPoUnitCost(mat.unitCost);
+    const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    setNewPoDate(nextWeek);
+    setShowPOModal(true);
+  };
+
+  // 신규 자재 등록 및 수정 (Supabase materials 테이블 즉시 저장)
+  const handleCreateMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMatName.trim()) return;
+
+    const computedUnit =
+      newMatUnit.trim() ||
+      (newMatCategory === '원단' ? '야드(YD)' : newMatCategory === '도자기소재' ? '포(20KG)' : '개(EA)');
+
+    if (editingMaterial) {
+      const updatedMat: MaterialItem = {
+        ...editingMaterial,
+        name: newMatName.trim(),
+        category: newMatCategory,
+        unit: computedUnit,
+        currentStock: Number(newMatStock),
+        safeStock: Number(newMatSafeStock),
+        unitCost: Number(newMatCost),
+        supplier: newMatSupplier.trim() || '국내 공방',
+        updatedAt: new Date().toISOString().slice(0, 10),
+      };
+      const nextMats = materials.map((m) => (m.id === editingMaterial.id ? updatedMat : m));
+      saveMaterialsLocal(nextMats);
+      setShowMatModal(false);
+      setEditingMaterial(null);
+
+      const res = await dbService.updateMaterial(updatedMat.id, updatedMat, updatedMat);
+      if (res.success) {
+        showToast(res.message, 'success');
+      } else {
+        showToast(res.message, 'error');
+      }
+      return;
+    }
 
     const newMat: MaterialItem = {
       id: `mat-${Date.now()}`,
       code: `MAT-${Math.floor(1000 + Math.random() * 9000)}`,
       name: newMatName.trim(),
       category: newMatCategory,
-      unit: newMatCategory === '원단' ? '야드(YD)' : newMatCategory === '도자기소재' ? '포(20KG)' : '개(EA)',
-      currentStock: newMatStock,
-      safeStock: 20,
-      unitCost: newMatCost,
+      unit: computedUnit,
+      currentStock: Number(newMatStock),
+      safeStock: Number(newMatSafeStock) || 20,
+      unitCost: Number(newMatCost),
       supplier: newMatSupplier.trim() || '국내 공방',
       updatedAt: new Date().toISOString().slice(0, 10),
     };
 
-    setMaterials((prev) => [newMat, ...prev]);
+    const nextMats = [newMat, ...materials];
+    saveMaterialsLocal(nextMats);
     setShowMatModal(false);
     setNewMatName('');
-    showToast(`원부자재(${newMat.name})가 등록되었습니다.`);
+
+    const res = await dbService.saveMaterial(newMat);
+    if (res.success) {
+      showToast(res.message, 'success');
+    } else {
+      showToast(`로컬에 원부자재가 저장되었습니다. (${res.message})`, 'error');
+    }
+  };
+
+  // 원부자재 재고 수량 증감 (Supabase materials 테이블 즉시 반영)
+  const handleAdjustMaterialStock = async (mat: MaterialItem, delta: number) => {
+    const nextStock = Math.max(0, mat.currentStock + delta);
+    const updatedMat: MaterialItem = {
+      ...mat,
+      currentStock: nextStock,
+      updatedAt: new Date().toISOString().slice(0, 10),
+    };
+    const nextMats = materials.map((m) => (m.id === mat.id ? updatedMat : m));
+    saveMaterialsLocal(nextMats);
+
+    const res = await dbService.updateMaterial(mat.id, { currentStock: nextStock }, updatedMat);
+    if (res.success) {
+      showToast(`[${mat.name}] 재고가 ${nextStock}${mat.unit}(으)로 Supabase에 반영되었습니다.`);
+    } else {
+      showToast(res.message, 'error');
+    }
+  };
+
+  // 원부자재 삭제 (Supabase materials 테이블 즉시 삭제)
+  const handleDeleteMaterial = async (mat: MaterialItem) => {
+    if (!window.confirm(`원부자재 [${mat.name}] (${mat.code}) 항목을 삭제하시겠습니까?`)) return;
+    const nextMats = materials.filter((m) => m.id !== mat.id);
+    saveMaterialsLocal(nextMats);
+
+    const res = await dbService.deleteMaterial(mat.id);
+    if (res.success) {
+      showToast(res.message);
+    } else {
+      showToast(res.message, 'error');
+    }
   };
 
   // DB 연결 테스트
@@ -653,6 +1021,7 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
     await handleTestConnection();
     await syncAllMembersToCloud();
     await refreshMembers();
+    await syncMaterialsAndPOFromSupabase();
   };
 
   return (
@@ -1292,24 +1661,67 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
           </div>
         )}
 
-        {/* 4. MATERIALS TAB (원부자재 ERP) */}
+        {/* 4. MATERIALS TAB (원부자재 ERP - Supabase materials 테이블 연동) */}
         {activeTab === 'MATERIALS' && (
           <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
-            <div className="flex justify-between items-center pb-3 border-b border-paper-300">
+            <div className="flex flex-wrap justify-between items-center gap-3 pb-3 border-b border-paper-300">
               <div>
-                <h2 className="text-base font-serif-kr font-semibold text-ink-900">
-                  원부자재 수급 및 재고 관리 (ERP)
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-serif-kr font-semibold text-ink-900">
+                    원부자재 수급 및 재고 관리 (ERP)
+                  </h2>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 border font-serif-kr ${
+                      isSupabaseConfigured()
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : 'bg-amber-50 border-amber-300 text-amber-800'
+                    }`}
+                  >
+                    {isSupabaseConfigured()
+                      ? 'Supabase 연동됨 (public.materials)'
+                      : '로컬 모드'}
+                  </span>
+                </div>
                 <p className="text-xs text-ink-500 font-serif-kr mt-0.5">
-                  진주 생사 명주실, 몽골 캐시미어, 솔리드 브라스 버클 등 원자재 안전재고 모니터링
+                  진주 생사 명주실, 몽골 캐시미어, 솔리드 브라스 버클 등 원자재 안전재고 실시간 DB 저장 및 발주 연동
                 </p>
               </div>
-              <button
-                onClick={() => setShowMatModal(true)}
-                className="px-3 py-1.5 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr flex items-center gap-1"
-              >
-                <Plus className="w-3.5 h-3.5" /> 원부자재 신규등록
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleCopyMaterialsPoSql}
+                  className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                  title="Supabase SQL Editor용 materials & purchase_orders 테이블 생성 SQL 복사"
+                >
+                  <Database className="w-3.5 h-3.5 text-amber-700" />
+                  <span>원부자재/발주 SQL 복사</span>
+                </button>
+                {isSupabaseConfigured() && (
+                  <>
+                    <button
+                      onClick={handleRefreshErpFromSupabase}
+                      disabled={isSyncingErp}
+                      className="px-2.5 py-1.5 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncingErp ? 'animate-spin' : ''}`} />
+                      <span>DB 동기화</span>
+                    </button>
+                    <button
+                      onClick={handleSyncAllErpToSupabase}
+                      disabled={isSyncingErp}
+                      className="px-2.5 py-1.5 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5 text-lacquer" />
+                      <span>전체 DB 업로드</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={handleOpenCreateMatModal}
+                  className="px-3 py-1.5 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> 원부자재 신규등록
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1320,10 +1732,11 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
                     <th className="py-2.5 px-3">자재 품목명</th>
                     <th className="py-2.5 px-3">분류</th>
                     <th className="py-2.5 px-3">단위</th>
-                    <th className="py-2.5 px-3">현재고 / 안전재고</th>
+                    <th className="py-2.5 px-3">현재고 / 안전재고 (DB 즉시반영)</th>
                     <th className="py-2.5 px-3">단가</th>
                     <th className="py-2.5 px-3">사입/공급처</th>
                     <th className="py-2.5 px-3">상태</th>
+                    <th className="py-2.5 px-3 text-right">관리 / 발주연동</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-paper-200 font-sans">
@@ -1336,10 +1749,37 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
                         <td className="py-3 px-3 font-serif-kr">{m.category}</td>
                         <td className="py-3 px-3">{m.unit}</td>
                         <td className="py-3 px-3">
-                          <span className={`font-bold ${isLow ? 'text-rose-600' : 'text-ink-900'}`}>
-                            {m.currentStock}
-                          </span>
-                          <span className="text-ink-400"> / {m.safeStock}</span>
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <span className={`font-bold ${isLow ? 'text-rose-600' : 'text-ink-900'}`}>
+                                {m.currentStock}
+                              </span>
+                              <span className="text-ink-400"> / {m.safeStock}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleAdjustMaterialStock(m, -1)}
+                                className="w-5 h-5 flex items-center justify-center bg-paper-200 border border-paper-300 hover:bg-paper-300 text-[11px]"
+                                title="1 감소 (Supabase 즉시 반영)"
+                              >
+                                -
+                              </button>
+                              <button
+                                onClick={() => handleAdjustMaterialStock(m, 1)}
+                                className="w-5 h-5 flex items-center justify-center bg-paper-200 border border-paper-300 hover:bg-paper-300 text-[11px]"
+                                title="1 증가 (Supabase 즉시 반영)"
+                              >
+                                +
+                              </button>
+                              <button
+                                onClick={() => handleAdjustMaterialStock(m, 10)}
+                                className="px-1.5 py-0.5 bg-paper-200 border border-paper-300 hover:bg-paper-300 text-[10px] font-serif-kr"
+                                title="10 입고 (Supabase 즉시 반영)"
+                              >
+                                +10
+                              </button>
+                            </div>
+                          </div>
                         </td>
                         <td className="py-3 px-3">{m.unitCost.toLocaleString()}원</td>
                         <td className="py-3 px-3 font-serif-kr">{m.supplier}</td>
@@ -1354,6 +1794,31 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
                             </span>
                           )}
                         </td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="inline-flex items-center gap-1 font-serif-kr">
+                            <button
+                              onClick={() => handleQuickOrderFromMaterial(m)}
+                              className="px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-[11px]"
+                              title="이 원부자재로 발주서 즉시 작성"
+                            >
+                              발주서 발행
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditMatModal(m)}
+                              className="p-1 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-700"
+                              title="자재 정보 수정"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteMaterial(m)}
+                              className="p-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700"
+                              title="자재 삭제"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -1363,24 +1828,67 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
           </div>
         )}
 
-        {/* 5. PURCHASE TAB (공방 발주 관리) */}
+        {/* 5. PURCHASE TAB (공방 발주 관리 - Supabase purchase_orders 테이블 연동) */}
         {activeTab === 'PURCHASE' && (
           <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
-            <div className="flex justify-between items-center pb-3 border-b border-paper-300">
+            <div className="flex flex-wrap justify-between items-center gap-3 pb-3 border-b border-paper-300">
               <div>
-                <h2 className="text-base font-serif-kr font-semibold text-ink-900">
-                  전주이씨 아틀리에 & 공방 발주 관리
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-serif-kr font-semibold text-ink-900">
+                    전주이씨 아틀리에 & 공방 발주 관리
+                  </h2>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 border font-serif-kr ${
+                      isSupabaseConfigured()
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : 'bg-amber-50 border-amber-300 text-amber-800'
+                    }`}
+                  >
+                    {isSupabaseConfigured()
+                      ? 'Supabase 연동됨 (public.purchase_orders)'
+                      : '로컬 모드'}
+                  </span>
+                </div>
                 <p className="text-xs text-ink-500 font-serif-kr mt-0.5">
-                  완제품 생산 및 원부자재 발주서 발행, 납기 일정 추적
+                  완제품 생산 및 원부자재 발주서 발행, 납기 일정 추적 (입고완료 변경 시 원부자재 재고 자동 가산)
                 </p>
               </div>
-              <button
-                onClick={() => setShowPOModal(true)}
-                className="px-3 py-1.5 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr flex items-center gap-1"
-              >
-                <Plus className="w-3.5 h-3.5" /> 신규 발주서 등록
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleCopyMaterialsPoSql}
+                  className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                  title="Supabase SQL Editor용 materials & purchase_orders 테이블 생성 SQL 복사"
+                >
+                  <Database className="w-3.5 h-3.5 text-amber-700" />
+                  <span>원부자재/발주 SQL 복사</span>
+                </button>
+                {isSupabaseConfigured() && (
+                  <>
+                    <button
+                      onClick={handleRefreshErpFromSupabase}
+                      disabled={isSyncingErp}
+                      className="px-2.5 py-1.5 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncingErp ? 'animate-spin' : ''}`} />
+                      <span>DB 동기화</span>
+                    </button>
+                    <button
+                      onClick={handleSyncAllErpToSupabase}
+                      disabled={isSyncingErp}
+                      className="px-2.5 py-1.5 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1 transition-colors"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5 text-lacquer" />
+                      <span>전체 DB 업로드</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setShowPOModal(true)}
+                  className="px-3 py-1.5 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> 신규 발주서 등록
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1392,9 +1900,11 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
                     <th className="py-2.5 px-3">발주 품목</th>
                     <th className="py-2.5 px-3">제작/공급처</th>
                     <th className="py-2.5 px-3">수량</th>
+                    <th className="py-2.5 px-3">단가</th>
                     <th className="py-2.5 px-3">총 발주금액</th>
                     <th className="py-2.5 px-3">입고예정일</th>
-                    <th className="py-2.5 px-3">진행 상태</th>
+                    <th className="py-2.5 px-3">진행 상태 (DB 저장)</th>
+                    <th className="py-2.5 px-3 text-right">관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-paper-200 font-sans">
@@ -1404,20 +1914,16 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
                       <td className="py-3 px-3 font-serif-kr">{po.itemType}</td>
                       <td className="py-3 px-3 font-serif-kr font-medium text-ink-900">{po.itemName}</td>
                       <td className="py-3 px-3 font-serif-kr">{po.supplier}</td>
-                      <td className="py-3 px-3 font-bold">{po.quantity}</td>
+                      <td className="py-3 px-3 font-bold">{po.quantity.toLocaleString()}</td>
+                      <td className="py-3 px-3 text-ink-600">{po.unitCost.toLocaleString()}원</td>
                       <td className="py-3 px-3 text-lacquer font-bold">{po.totalCost.toLocaleString()}원</td>
                       <td className="py-3 px-3 text-ink-500">{po.expectedDate}</td>
                       <td className="py-3 px-3 font-serif-kr">
                         <select
                           value={po.status}
-                          onChange={(e) => {
-                            setPurchaseOrders((prev) =>
-                              prev.map((item) =>
-                                item.id === po.id ? { ...item, status: e.target.value as any } : item
-                              )
-                            );
-                            showToast(`발주 상태가 '${e.target.value}'(으)로 변경되었습니다.`);
-                          }}
+                          onChange={(e) =>
+                            handleUpdatePOStatus(po, e.target.value as PurchaseOrder['status'])
+                          }
                           className="bg-paper-50 border border-paper-300 px-2 py-0.5 text-[11px]"
                         >
                           <option value="발주대기">발주대기</option>
@@ -1426,6 +1932,15 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
                           <option value="입고완료">입고완료</option>
                           <option value="발주취소">발주취소</option>
                         </select>
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <button
+                          onClick={() => handleDeletePO(po)}
+                          className="p-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700"
+                          title="발주서 삭제"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -1890,33 +2405,59 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
         </div>
       )}
 
-      {/* 신규 자재 모달 */}
+      {/* 원부자재 등록 및 수정 모달 (Supabase materials 연동) */}
       {showMatModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-paper-100 border border-paper-300 w-full max-w-md p-6 shadow-2xl space-y-4">
             <div className="flex justify-between items-center pb-2 border-b border-paper-300">
               <h3 className="text-sm font-serif-kr font-bold text-ink-900">
-                원부자재 품목 신규 등록
+                {editingMaterial ? `원부자재 정보 수정: ${editingMaterial.name}` : '원부자재 품목 신규 등록 (Supabase DB)'}
               </h3>
-              <button onClick={() => setShowMatModal(false)}>
+              <button
+                onClick={() => {
+                  setShowMatModal(false);
+                  setEditingMaterial(null);
+                }}
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={handleCreateMaterial} className="text-xs space-y-3 font-serif-kr">
-              <div>
-                <label className="block text-ink-700 mb-1">분류</label>
-                <select
-                  value={newMatCategory}
-                  onChange={(e) => setNewMatCategory(e.target.value as any)}
-                  className="w-full bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900"
-                >
-                  <option value="원단">원단</option>
-                  <option value="자수실">자수실</option>
-                  <option value="스트랩/버클">스트랩/버클</option>
-                  <option value="라벨/부자재">라벨/부자재</option>
-                  <option value="도자기소재">도자기소재</option>
-                </select>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-ink-700 mb-1">분류</label>
+                  <select
+                    value={newMatCategory}
+                    onChange={(e) => {
+                      const cat = e.target.value as MaterialItem['category'];
+                      setNewMatCategory(cat);
+                      if (!editingMaterial) {
+                        setNewMatUnit(
+                          cat === '원단' ? '야드(YD)' : cat === '도자기소재' ? '포(20KG)' : cat === '자수실' ? '콘(Cone)' : '개(EA)'
+                        );
+                      }
+                    }}
+                    className="w-full bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900"
+                  >
+                    <option value="원단">원단</option>
+                    <option value="자수실">자수실</option>
+                    <option value="스트랩/버클">스트랩/버클</option>
+                    <option value="라벨/부자재">라벨/부자재</option>
+                    <option value="포장재">포장재</option>
+                    <option value="도자기소재">도자기소재</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-ink-700 mb-1">수량 단위</label>
+                  <input
+                    type="text"
+                    placeholder="예: 야드(YD), 개(EA), 콘(Cone)"
+                    value={newMatUnit}
+                    onChange={(e) => setNewMatUnit(e.target.value)}
+                    className="w-full bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900 font-sans"
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-ink-700 mb-1">자재명</label>
@@ -1929,14 +2470,24 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
                   className="w-full bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2 font-sans">
+              <div className="grid grid-cols-3 gap-2 font-sans">
                 <div>
-                  <label className="block text-ink-700 mb-1 font-serif-kr">초기 재고수량</label>
+                  <label className="block text-ink-700 mb-1 font-serif-kr">현재고 수량</label>
                   <input
                     type="number"
                     min={0}
                     value={newMatStock}
                     onChange={(e) => setNewMatStock(parseInt(e.target.value, 10) || 0)}
+                    className="w-full bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-ink-700 mb-1 font-serif-kr">안전재고 기준</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={newMatSafeStock}
+                    onChange={(e) => setNewMatSafeStock(parseInt(e.target.value, 10) || 0)}
                     className="w-full bg-paper-50 border border-paper-300 px-3 py-2 text-ink-900"
                   />
                 </div>
@@ -1965,7 +2516,10 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowMatModal(false)}
+                  onClick={() => {
+                    setShowMatModal(false);
+                    setEditingMaterial(null);
+                  }}
                   className="flex-1 py-2 border border-paper-300 text-ink-700"
                 >
                   취소
@@ -1974,7 +2528,7 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
                   type="submit"
                   className="flex-1 py-2 bg-ink-900 hover:bg-lacquer text-paper-100 font-medium"
                 >
-                  자재 등록
+                  {editingMaterial ? '자재 수정 완료 (DB 저장)' : '자재 등록 (DB 저장)'}
                 </button>
               </div>
             </form>

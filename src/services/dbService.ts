@@ -751,6 +751,414 @@ export const dbService = {
     }
   },
 
+  // ==========================================
+  // [MATERIALS (원부자재 수급/재고 ERP)] CRUD
+  // ==========================================
+
+  async checkMaterialsTableStatus(): Promise<{ exists: boolean; count: number; error?: string }> {
+    if (!isSupabaseConfigured()) return { exists: false, count: 0, error: 'Not configured' };
+    try {
+      const client = getSupabaseClient();
+      const { count, error } = await client
+        .from('materials')
+        .select('id', { count: 'exact', head: true });
+      if (error) {
+        return { exists: false, count: 0, error: error.message };
+      }
+      return { exists: true, count: count ?? 0 };
+    } catch (e: any) {
+      return { exists: false, count: 0, error: e?.message || 'Unknown error' };
+    }
+  },
+
+  async fetchMaterials(): Promise<MaterialItem[] | null> {
+    if (!isSupabaseConfigured()) return null;
+    try {
+      const client = getSupabaseClient();
+      let { data, error } = await client
+        .from('materials')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        const retry = await client.from('materials').select('*');
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error || !data) return null;
+
+      return data.map((row: any): MaterialItem => ({
+        id: row.id,
+        code: row.code || `MAT-${String(row.id).slice(-4).toUpperCase()}`,
+        name: row.name,
+        category: (row.category || '원단') as MaterialItem['category'],
+        unit: row.unit || '개(EA)',
+        currentStock: Number(row.current_stock ?? 0),
+        safeStock: Number(row.safe_stock ?? row.safety_stock ?? 20),
+        unitCost: Number(row.unit_cost ?? row.unit_price ?? 0),
+        supplier: row.supplier || '국내 공방',
+        updatedAt: row.updated_at ? String(row.updated_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
+      }));
+    } catch (e) {
+      console.warn('Supabase materials fetch failed:', e);
+      return null;
+    }
+  },
+
+  async _upsertMaterialsResilient(materials: MaterialItem[]): Promise<{ error: any }> {
+    const client = getSupabaseClient();
+    const standardPayload = materials.map((m) => ({
+      id: m.id,
+      code: m.code,
+      name: m.name,
+      category: m.category,
+      unit: m.unit,
+      current_stock: Number(m.currentStock ?? 0),
+      safe_stock: Number(m.safeStock ?? 20),
+      unit_cost: Number(m.unitCost ?? 0),
+      supplier: m.supplier || '국내 공방',
+      updated_at: m.updatedAt || new Date().toISOString().slice(0, 10),
+    }));
+
+    let { error } = await client.from('materials').upsert(standardPayload, { onConflict: 'id' });
+    if (!error) return { error: null };
+
+    // 레거시 컬럼(safety_stock, unit_price) 호환 재시도
+    if (error.message && (error.message.includes('safe_stock') || error.message.includes('unit_cost') || error.message.includes('updated_at'))) {
+      const legacyPayload = materials.map((m) => ({
+        id: m.id,
+        code: m.code,
+        name: m.name,
+        category: m.category,
+        unit: m.unit,
+        current_stock: Number(m.currentStock ?? 0),
+        safety_stock: Number(m.safeStock ?? 20),
+        unit_price: Number(m.unitCost ?? 0),
+        supplier: m.supplier || '국내 공방',
+      }));
+      const retry = await client.from('materials').upsert(legacyPayload, { onConflict: 'id' });
+      error = retry.error;
+    }
+
+    return { error };
+  },
+
+  async saveMaterial(material: MaterialItem): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, message: 'Supabase가 설정되지 않았습니다. (로컬에만 저장됩니다)' };
+    }
+    try {
+      const { error } = await this._upsertMaterialsResilient([material]);
+      if (error) {
+        console.error('Supabase saveMaterial error:', error);
+        return {
+          success: false,
+          message: `Supabase materials 저장 실패: ${error.message} ([원부자재/발주 SQL 복사] 후 SQL Editor에서 실행해주세요)`,
+        };
+      }
+      return {
+        success: true,
+        message: `[${material.name}] 원부자재가 Supabase(cpzyrpaenvzfshqqpmrf) materials 테이블에 저장되었습니다!`,
+      };
+    } catch (e: any) {
+      return { success: false, message: `원부자재 저장 오류: ${e?.message || '네트워크 오류'}` };
+    }
+  },
+
+  async updateMaterial(
+    id: string,
+    updates: Partial<MaterialItem>,
+    fullMaterial?: MaterialItem
+  ): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, message: 'Supabase 미설정 (로컬에만 반영)' };
+    }
+    try {
+      if (fullMaterial) {
+        const { error: upsertErr } = await this._upsertMaterialsResilient([fullMaterial]);
+        if (!upsertErr) {
+          return {
+            success: true,
+            message: `[${fullMaterial.name}] 원부자재 정보가 Supabase materials 테이블에 업데이트되었습니다!`,
+          };
+        }
+      }
+
+      const client = getSupabaseClient();
+      const payload: Record<string, any> = {
+        updated_at: new Date().toISOString().slice(0, 10),
+      };
+      if (updates.code !== undefined) payload.code = updates.code;
+      if (updates.name !== undefined) payload.name = updates.name;
+      if (updates.category !== undefined) payload.category = updates.category;
+      if (updates.unit !== undefined) payload.unit = updates.unit;
+      if (updates.currentStock !== undefined) payload.current_stock = Number(updates.currentStock);
+      if (updates.safeStock !== undefined) payload.safe_stock = Number(updates.safeStock);
+      if (updates.unitCost !== undefined) payload.unit_cost = Number(updates.unitCost);
+      if (updates.supplier !== undefined) payload.supplier = updates.supplier;
+
+      const { error } = await client.from('materials').update(payload).eq('id', id);
+      if (error) {
+        return { success: false, message: `원부자재 수정 실패: ${error.message}` };
+      }
+      return { success: true, message: '원부자재 정보가 Supabase materials 테이블에 수정되었습니다.' };
+    } catch (e: any) {
+      return { success: false, message: `수정 오류: ${e?.message || '네트워크 오류'}` };
+    }
+  },
+
+  async deleteMaterial(id: string): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, message: 'Supabase 미설정 (로컬에서만 삭제)' };
+    }
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.from('materials').delete().eq('id', id);
+      if (error) {
+        return { success: false, message: `Supabase materials 삭제 실패: ${error.message}` };
+      }
+      return { success: true, message: '원부자재가 Supabase materials 테이블에서 삭제되었습니다.' };
+    } catch (e: any) {
+      return { success: false, message: `삭제 오류: ${e?.message || '네트워크 오류'}` };
+    }
+  },
+
+  async syncAllMaterialsToSupabase(materials: MaterialItem[]): Promise<{ success: boolean; count: number; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, count: 0, message: 'Supabase가 설정되지 않았습니다.' };
+    }
+    try {
+      const { error } = await this._upsertMaterialsResilient(materials);
+      if (error) {
+        return {
+          success: false,
+          count: 0,
+          message: `원부자재 일괄 업로드 실패: ${error.message} ([원부자재/발주 SQL 복사]를 실행해주세요)`,
+        };
+      }
+      return {
+        success: true,
+        count: materials.length,
+        message: `${materials.length}건의 원부자재 데이터가 Supabase(cpzyrpaenvzfshqqpmrf) materials 테이블에 업로드되었습니다!`,
+      };
+    } catch (e: any) {
+      return { success: false, count: 0, message: `업로드 오류: ${e?.message || '통신 실패'}` };
+    }
+  },
+
+  // ==========================================
+  // [PURCHASE ORDERS (공방/원부자재 발주 관리)] CRUD
+  // ==========================================
+
+  async checkPurchaseOrdersTableStatus(): Promise<{ exists: boolean; count: number; error?: string }> {
+    if (!isSupabaseConfigured()) return { exists: false, count: 0, error: 'Not configured' };
+    try {
+      const client = getSupabaseClient();
+      const { count, error } = await client
+        .from('purchase_orders')
+        .select('id', { count: 'exact', head: true });
+      if (error) {
+        return { exists: false, count: 0, error: error.message };
+      }
+      return { exists: true, count: count ?? 0 };
+    } catch (e: any) {
+      return { exists: false, count: 0, error: e?.message || 'Unknown error' };
+    }
+  },
+
+  async fetchPurchaseOrders(): Promise<PurchaseOrder[] | null> {
+    if (!isSupabaseConfigured()) return null;
+    try {
+      const client = getSupabaseClient();
+      let { data, error } = await client
+        .from('purchase_orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        const retry = await client.from('purchase_orders').select('*');
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error || !data) return null;
+
+      return data.map((row: any): PurchaseOrder => {
+        const qty = Number(row.quantity ?? 1);
+        const unitCost = Number(row.unit_cost ?? row.unit_price ?? 0);
+        const totalCost = Number(row.total_cost ?? row.total_price ?? qty * unitCost);
+        return {
+          id: row.id,
+          poNumber: row.po_number || `PO-${String(row.id).slice(-6).toUpperCase()}`,
+          itemType: (row.item_type || '원부자재') as PurchaseOrder['itemType'],
+          itemName: row.item_name || '',
+          supplier: row.supplier || row.supplier_name || '국내 공방',
+          quantity: qty,
+          unitCost,
+          totalCost,
+          status: (row.status || '발주승인') as PurchaseOrder['status'],
+          expectedDate: row.expected_date || row.due_date || new Date().toISOString().slice(0, 10),
+          createdAt: row.created_at
+            ? String(row.created_at).slice(0, 10)
+            : row.order_date
+            ? String(row.order_date).slice(0, 10)
+            : new Date().toISOString().slice(0, 10),
+        };
+      });
+    } catch (e) {
+      console.warn('Supabase purchase_orders fetch failed:', e);
+      return null;
+    }
+  },
+
+  async _upsertPurchaseOrdersResilient(orders: PurchaseOrder[]): Promise<{ error: any }> {
+    const client = getSupabaseClient();
+    const standardPayload = orders.map((po) => ({
+      id: po.id,
+      po_number: po.poNumber,
+      item_type: po.itemType || '원부자재',
+      item_name: po.itemName,
+      supplier: po.supplier,
+      quantity: Number(po.quantity ?? 1),
+      unit_cost: Number(po.unitCost ?? 0),
+      total_cost: Number(po.totalCost ?? Number(po.quantity ?? 1) * Number(po.unitCost ?? 0)),
+      status: po.status || '발주승인',
+      expected_date: po.expectedDate || new Date().toISOString().slice(0, 10),
+      created_at: po.createdAt || new Date().toISOString().slice(0, 10),
+    }));
+
+    let { error } = await client.from('purchase_orders').upsert(standardPayload, { onConflict: 'id' });
+    if (!error) return { error: null };
+
+    // 레거시 컬럼(supplier_name, unit_price, total_price, due_date, order_date) 호환 재시도
+    if (
+      error.message &&
+      (error.message.includes('item_type') ||
+        error.message.includes('supplier') ||
+        error.message.includes('unit_cost') ||
+        error.message.includes('expected_date'))
+    ) {
+      const legacyPayload = orders.map((po) => ({
+        id: po.id,
+        po_number: po.poNumber,
+        order_date: po.createdAt || new Date().toISOString().slice(0, 10),
+        due_date: po.expectedDate || new Date().toISOString().slice(0, 10),
+        supplier_name: po.supplier,
+        item_name: po.itemName,
+        quantity: Number(po.quantity ?? 1),
+        unit_price: Number(po.unitCost ?? 0),
+        total_price: Number(po.totalCost ?? Number(po.quantity ?? 1) * Number(po.unitCost ?? 0)),
+        status: po.status || '발주승인',
+      }));
+      const retry = await client.from('purchase_orders').upsert(legacyPayload, { onConflict: 'id' });
+      error = retry.error;
+    }
+
+    return { error };
+  },
+
+  async savePurchaseOrder(po: PurchaseOrder): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, message: 'Supabase가 설정되지 않았습니다. (로컬에만 저장됩니다)' };
+    }
+    try {
+      const { error } = await this._upsertPurchaseOrdersResilient([po]);
+      if (error) {
+        console.error('Supabase savePurchaseOrder error:', error);
+        return {
+          success: false,
+          message: `Supabase purchase_orders 저장 실패: ${error.message} ([원부자재/발주 SQL 복사] 후 SQL Editor에서 실행해주세요)`,
+        };
+      }
+      return {
+        success: true,
+        message: `발주서 [${po.poNumber}] (${po.itemName})가 Supabase(cpzyrpaenvzfshqqpmrf) purchase_orders 테이블에 저장되었습니다!`,
+      };
+    } catch (e: any) {
+      return { success: false, message: `발주서 저장 오류: ${e?.message || '네트워크 오류'}` };
+    }
+  },
+
+  async updatePurchaseOrder(
+    id: string,
+    updates: Partial<PurchaseOrder>,
+    fullPo?: PurchaseOrder
+  ): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, message: 'Supabase 미설정 (로컬에만 반영)' };
+    }
+    try {
+      if (fullPo) {
+        const { error: upsertErr } = await this._upsertPurchaseOrdersResilient([fullPo]);
+        if (!upsertErr) {
+          return {
+            success: true,
+            message: `발주서 [${fullPo.poNumber}] 상태(${fullPo.status})가 Supabase purchase_orders 테이블에 반영되었습니다!`,
+          };
+        }
+      }
+
+      const client = getSupabaseClient();
+      const payload: Record<string, any> = {};
+      if (updates.status !== undefined) payload.status = updates.status;
+      if (updates.itemType !== undefined) payload.item_type = updates.itemType;
+      if (updates.itemName !== undefined) payload.item_name = updates.itemName;
+      if (updates.supplier !== undefined) payload.supplier = updates.supplier;
+      if (updates.quantity !== undefined) payload.quantity = Number(updates.quantity);
+      if (updates.unitCost !== undefined) payload.unit_cost = Number(updates.unitCost);
+      if (updates.totalCost !== undefined) payload.total_cost = Number(updates.totalCost);
+      if (updates.expectedDate !== undefined) payload.expected_date = updates.expectedDate;
+
+      const { error } = await client.from('purchase_orders').update(payload).eq('id', id);
+      if (error) {
+        return { success: false, message: `발주서 수정 실패: ${error.message}` };
+      }
+      return { success: true, message: '발주서 정보가 Supabase purchase_orders 테이블에 업데이트되었습니다.' };
+    } catch (e: any) {
+      return { success: false, message: `발주서 수정 오류: ${e?.message || '네트워크 오류'}` };
+    }
+  },
+
+  async deletePurchaseOrder(id: string): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, message: 'Supabase 미설정 (로컬에서만 삭제)' };
+    }
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.from('purchase_orders').delete().eq('id', id);
+      if (error) {
+        return { success: false, message: `Supabase purchase_orders 삭제 실패: ${error.message}` };
+      }
+      return { success: true, message: '발주서가 Supabase purchase_orders 테이블에서 삭제되었습니다.' };
+    } catch (e: any) {
+      return { success: false, message: `삭제 오류: ${e?.message || '네트워크 오류'}` };
+    }
+  },
+
+  async syncAllPurchaseOrdersToSupabase(orders: PurchaseOrder[]): Promise<{ success: boolean; count: number; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, count: 0, message: 'Supabase가 설정되지 않았습니다.' };
+    }
+    try {
+      const { error } = await this._upsertPurchaseOrdersResilient(orders);
+      if (error) {
+        return {
+          success: false,
+          count: 0,
+          message: `발주서 일괄 업로드 실패: ${error.message} ([원부자재/발주 SQL 복사]를 실행해주세요)`,
+        };
+      }
+      return {
+        success: true,
+        count: orders.length,
+        message: `${orders.length}건의 발주서 데이터가 Supabase(cpzyrpaenvzfshqqpmrf) purchase_orders 테이블에 업로드되었습니다!`,
+      };
+    } catch (e: any) {
+      return { success: false, count: 0, message: `업로드 오류: ${e?.message || '통신 실패'}` };
+    }
+  },
+
   // 원클릭 샘플 데이터베이스 동기화 (전주이씨 상품, 자재, 발주, 세금계산서)
   async syncSeedDataToSupabase(): Promise<{ success: boolean; message: string; counts?: any }> {
     if (!isSupabaseConfigured()) {
@@ -763,42 +1171,19 @@ export const dbService = {
       const client = getSupabaseClient();
       let productCount = 0;
       let materialCount = 0;
+      let poCount = 0;
 
       // 1. 상품 주입
       const { error: pErr } = await this._upsertProductsResilient(PRODUCTS);
       if (!pErr) productCount = PRODUCTS.length;
 
       // 2. 원부자재 주입
-      const matPayload = INITIAL_MATERIALS.map((m) => ({
-        id: m.id,
-        code: m.code,
-        name: m.name,
-        category: m.category,
-        current_stock: m.currentStock,
-        safety_stock: m.safeStock,
-        unit: m.unit,
-        unit_price: m.unitCost,
-        supplier: m.supplier,
-        status: m.currentStock <= m.safeStock ? '부족' : '정상',
-      }));
-      const { error: mErr } = await client.from('materials').upsert(matPayload);
-      if (!mErr) materialCount = matPayload.length;
+      const { error: mErr } = await this._upsertMaterialsResilient(INITIAL_MATERIALS);
+      if (!mErr) materialCount = INITIAL_MATERIALS.length;
 
       // 3. 발주서 주입
-      const poPayload = INITIAL_PURCHASE_ORDERS.map((po) => ({
-        id: po.id,
-        po_number: po.poNumber,
-        order_date: po.createdAt,
-        due_date: po.expectedDate,
-        supplier_name: po.supplier,
-        item_name: po.itemName,
-        quantity: po.quantity,
-        unit_price: po.unitCost,
-        total_price: po.totalCost,
-        status: po.status,
-        notes: '',
-      }));
-      await client.from('purchase_orders').upsert(poPayload);
+      const { error: poErr } = await this._upsertPurchaseOrdersResilient(INITIAL_PURCHASE_ORDERS);
+      if (!poErr) poCount = INITIAL_PURCHASE_ORDERS.length;
 
       // 4. 전자세금계산서 주입
       const taxPayload = INITIAL_TAX_INVOICES.map((t) => ({
@@ -832,8 +1217,8 @@ export const dbService = {
 
       return {
         success: true,
-        message: `Supabase 데이터베이스에 데이터 동기화 완료! (상품 ${productCount}개, 원자재 ${materialCount}개 외)`,
-        counts: { products: productCount, materials: materialCount },
+        message: `Supabase 데이터베이스에 데이터 동기화 완료! (상품 ${productCount}개, 원부자재 ${materialCount}건, 발주서 ${poCount}건 외)`,
+        counts: { products: productCount, materials: materialCount, purchaseOrders: poCount },
       };
     } catch (err: any) {
       return {

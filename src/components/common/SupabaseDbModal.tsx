@@ -576,34 +576,91 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
               </div>
             </div>
 
-            {/* Sync Seed Data */}
+            {/* Sync Seed Data & ERP SQL */}
             <div className="p-3.5 bg-paper-50 border border-paper-300 rounded-sm flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 font-medium text-ink-900 text-xs mb-1">
                   <UploadCloud className="w-4 h-4 text-bronze" />
-                  <span>전주이씨 전체 데이터 주입</span>
+                  <span className="font-bold">원부자재/발주 SQL & 데이터 주입</span>
                 </div>
                 <p className="text-[11px] text-ink-500 leading-relaxed mb-3">
-                  회원 목록(이메일/비밀번호), 상품 12종, 원자재, 발주서, 게시판 데이터를 Supabase DB에 밀어 넣습니다.
+                  원부자재(materials)·발주(purchase_orders) 테이블 SQL 복사 및 전체 초기 데이터를 Supabase DB에 일괄 업로드합니다.
                 </p>
               </div>
               <div className="space-y-1.5">
                 <button
+                  onClick={() => {
+                    const sql = `-- 전주이씨 (JEONJU LEE) 원부자재(materials) 및 발주관리(purchase_orders) 테이블 생성 SQL
+CREATE TABLE IF NOT EXISTS public.materials (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    current_stock INTEGER NOT NULL DEFAULT 0,
+    safe_stock INTEGER NOT NULL DEFAULT 20,
+    unit_cost INTEGER NOT NULL DEFAULT 0,
+    supplier TEXT NOT NULL,
+    updated_at DATE NOT NULL DEFAULT CURRENT_DATE
+);
+ALTER TABLE public.materials ADD COLUMN IF NOT EXISTS safe_stock INTEGER NOT NULL DEFAULT 20;
+ALTER TABLE public.materials ADD COLUMN IF NOT EXISTS unit_cost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.materials ADD COLUMN IF NOT EXISTS updated_at DATE NOT NULL DEFAULT CURRENT_DATE;
+ALTER TABLE public.materials ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "materials_select_policy" ON public.materials;
+CREATE POLICY "materials_select_policy" ON public.materials FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "materials_insert_policy" ON public.materials;
+CREATE POLICY "materials_insert_policy" ON public.materials FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "materials_update_policy" ON public.materials;
+CREATE POLICY "materials_update_policy" ON public.materials FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "materials_delete_policy" ON public.materials;
+CREATE POLICY "materials_delete_policy" ON public.materials FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.materials TO anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS public.purchase_orders (
+    id TEXT PRIMARY KEY,
+    po_number TEXT UNIQUE NOT NULL,
+    item_type TEXT NOT NULL,
+    item_name TEXT NOT NULL,
+    supplier TEXT NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_cost INTEGER NOT NULL CHECK (unit_cost >= 0),
+    total_cost INTEGER NOT NULL CHECK (total_cost >= 0),
+    status TEXT NOT NULL DEFAULT '발주승인',
+    expected_date DATE NOT NULL,
+    created_at DATE NOT NULL DEFAULT CURRENT_DATE
+);
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS item_type TEXT NOT NULL DEFAULT '원부자재';
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS supplier TEXT NOT NULL DEFAULT '국내 공방';
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS unit_cost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS total_cost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS expected_date DATE NOT NULL DEFAULT CURRENT_DATE;
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS created_at DATE NOT NULL DEFAULT CURRENT_DATE;
+ALTER TABLE public.purchase_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "po_select_policy" ON public.purchase_orders;
+CREATE POLICY "po_select_policy" ON public.purchase_orders FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "po_insert_policy" ON public.purchase_orders;
+CREATE POLICY "po_insert_policy" ON public.purchase_orders FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "po_update_policy" ON public.purchase_orders;
+CREATE POLICY "po_update_policy" ON public.purchase_orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "po_delete_policy" ON public.purchase_orders;
+CREATE POLICY "po_delete_policy" ON public.purchase_orders FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
+                    navigator.clipboard.writeText(sql);
+                    showToast('원부자재(materials) & 발주(purchase_orders) 테이블 SQL이 복사되었습니다!');
+                  }}
+                  className="w-full py-2 bg-amber-700 hover:bg-amber-800 text-paper-100 text-xs font-medium rounded-sm transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>원부자재/발주 SQL 복사하기</span>
+                </button>
+                <button
                   onClick={handleSyncData}
                   disabled={syncing || !configured}
-                  className="w-full py-2 bg-paper-200 hover:bg-paper-300 text-ink-900 text-xs font-medium rounded-sm border border-paper-300 transition-colors disabled:opacity-40"
+                  className="w-full py-1.5 bg-paper-200 hover:bg-paper-300 text-ink-900 text-xs font-medium rounded-sm border border-paper-300 transition-colors disabled:opacity-40"
                 >
                   {syncing ? '데이터 동기화 중...' : '원클릭 DB 데이터 주입'}
                 </button>
-                <a
-                  href="https://supabase.com/dashboard/project/cpzyrpaenvzfshqqpmrf/editor"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-1.5 text-center text-ink-700 hover:text-ink-900 text-[11px] flex items-center justify-center gap-1 underline underline-offset-2"
-                >
-                  <span>Supabase Table Editor 열기</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
               </div>
             </div>
           </div>
