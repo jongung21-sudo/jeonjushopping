@@ -922,7 +922,7 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
     showToast('Supabase(cpzyrpaenvzfshqqpmrf) materials 및 purchase_orders 테이블과 동기화 완료!');
   };
 
-  // 대시보드/주문/찜/장바구니(dashboard_summary, dashboard_orders, orders, wishlist_items, cart_items) SQL 원클릭 복사
+  // 1) 대시보드/주문(dashboard_summary, dashboard_orders, orders) 전용 SQL 복사
   const handleCopyDashboardSql = () => {
     const sql = `CREATE TABLE IF NOT EXISTS public.dashboard_summary (
   id TEXT PRIMARY KEY DEFAULT 'main',
@@ -1000,6 +1000,22 @@ DROP POLICY IF EXISTS "allow_all_orders" ON public.orders;
 CREATE POLICY "allow_all_orders" ON public.orders FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 GRANT ALL ON public.orders TO anon, authenticated, service_role;
 
+INSERT INTO public.dashboard_summary (id, brand_name, ceo_name, total_revenue, total_order_count, pending_shipping_count, refund_request_count, registered_member_count, low_stock_material_count, total_product_count, total_po_count)
+VALUES ('main', '전주이씨 (JEONJU LEE)', '이종웅 대표', 484200, 2, 0, 0, 3, 2, 20, 3)
+ON CONFLICT (id) DO UPDATE SET total_revenue = EXCLUDED.total_revenue, updated_at = NOW();
+
+INSERT INTO public.dashboard_orders (id, order_number, order_date, customer_name, product_name, final_price, status, payment_method, tracking_carrier, tracking_number, recipient_phone, address)
+VALUES
+  ('ord-20260305-01', 'ORD-20260305-8821', '2026-03-05 14:20', '김서연', '울 캐시미어 릴렉스드 도포 코트', 416200, '배송중', '신용/체크카드', 'CJ대한통운', '6482-9103-4412', '010-9876-5432', '서울 강남구 압구정로 10'),
+  ('ord-20260228-02', 'ORD-20260228-3312', '2026-02-28 19:05', '김서연', '전통 매듭 노리개 키링 & 가죽 참', 68000, '배송완료', '카카오페이', '우체국택배', '1049-2281-9930', '010-9876-5432', '서울 강남구 압구정로 10')
+ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, updated_at = NOW();`;
+    navigator.clipboard.writeText(sql);
+    showToast('대시보드·주문(dashboard_summary, dashboard_orders, orders) 전용 SQL이 복사되었습니다!');
+  };
+
+  // 2) 찜한상품(wishlist_items) & 장바구니(cart_items) 전용 SQL 복사
+  const handleCopyWishlistCartSql = () => {
+    const sql = `-- 1. 찜한상품 테이블 (public.wishlist_items)
 CREATE TABLE IF NOT EXISTS public.wishlist_items (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL DEFAULT 'guest',
@@ -1017,6 +1033,7 @@ DROP POLICY IF EXISTS "allow_all_wishlist_items" ON public.wishlist_items;
 CREATE POLICY "allow_all_wishlist_items" ON public.wishlist_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 GRANT ALL ON public.wishlist_items TO anon, authenticated, service_role;
 
+-- 2. 장바구니 테이블 (public.cart_items)
 CREATE TABLE IF NOT EXISTS public.cart_items (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL DEFAULT 'guest',
@@ -1039,16 +1056,7 @@ DROP POLICY IF EXISTS "allow_all_cart_items" ON public.cart_items;
 CREATE POLICY "allow_all_cart_items" ON public.cart_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 GRANT ALL ON public.cart_items TO anon, authenticated, service_role;
 
-INSERT INTO public.dashboard_summary (id, brand_name, ceo_name, total_revenue, total_order_count, pending_shipping_count, refund_request_count, registered_member_count, low_stock_material_count, total_product_count, total_po_count)
-VALUES ('main', '전주이씨 (JEONJU LEE)', '이종웅 대표', 484200, 2, 0, 0, 3, 2, 20, 3)
-ON CONFLICT (id) DO UPDATE SET total_revenue = EXCLUDED.total_revenue, updated_at = NOW();
-
-INSERT INTO public.dashboard_orders (id, order_number, order_date, customer_name, product_name, final_price, status, payment_method, tracking_carrier, tracking_number, recipient_phone, address)
-VALUES
-  ('ord-20260305-01', 'ORD-20260305-8821', '2026-03-05 14:20', '김서연', '울 캐시미어 릴렉스드 도포 코트', 416200, '배송중', '신용/체크카드', 'CJ대한통운', '6482-9103-4412', '010-9876-5432', '서울 강남구 압구정로 10'),
-  ('ord-20260228-02', 'ORD-20260228-3312', '2026-02-28 19:05', '김서연', '전통 매듭 노리개 키링 & 가죽 참', 68000, '배송완료', '카카오페이', '우체국택배', '1049-2281-9930', '010-9876-5432', '서울 강남구 압구정로 10')
-ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, updated_at = NOW();
-
+-- 3. 초기 데이터 (찜한상품 2건, 장바구니 1건)
 INSERT INTO public.wishlist_items (id, user_id, user_email, user_name, product_id, product_name, category, price)
 VALUES
   ('usr-customer-01_jl-out-01', 'usr-customer-01', 'customer@jeonjulee.kr', '김서연', 'jl-out-01', '울 캐시미어 릴렉스드 도포 코트', 'OUTER', 468000),
@@ -1060,7 +1068,7 @@ VALUES
   ('usr-customer-01_jl-out-01_L', 'usr-customer-01', 'customer@jeonjulee.kr', '김서연', 'jl-out-01', '울 캐시미어 릴렉스드 도포 코트', '먹색 (Ink Black)', 'L (100-105)', 1, 468000, 468000, true)
 ON CONFLICT (id) DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = NOW();`;
     navigator.clipboard.writeText(sql);
-    showToast('대시보드·주문·찜(wishlist_items)·장바구니(cart_items) 통합 SQL이 복사되었습니다!');
+    showToast('찜한상품(wishlist_items) & 장바구니(cart_items) 전용 SQL이 복사되었습니다!');
   };
 
   // 대시보드 통계 및 실시간 주문내역, 찜한상품, 장바구니 전체를 Supabase에 즉시 저장
@@ -1512,10 +1520,19 @@ ON CONFLICT (id) DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = NOW();
                   type="button"
                   onClick={handleCopyDashboardSql}
                   className="flex items-center gap-1.5 px-3.5 py-2 border border-amber-500 bg-amber-50 text-amber-900 text-xs font-serif-kr font-semibold hover:bg-amber-100 transition-colors whitespace-nowrap"
-                  title="Supabase Table Editor에서 한글 설명과 직관적인 컬럼명으로 보이도록 테이블 생성 SQL 복사"
+                  title="대시보드 및 주문 전용 테이블 생성 SQL 복사"
                 >
                   <Database className="w-3.5 h-3.5 text-amber-700" />
                   대시보드/주문 SQL 복사
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyWishlistCartSql}
+                  className="flex items-center gap-1.5 px-3.5 py-2 border border-ink-900 bg-ink-900 text-paper-100 text-xs font-serif-kr font-semibold hover:bg-lacquer hover:border-lacquer transition-colors whitespace-nowrap"
+                  title="찜한상품(wishlist_items) 및 장바구니(cart_items) 전용 테이블 생성 SQL 복사"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  찜/장바구니 SQL 복사
                 </button>
                 <button
                   type="button"
