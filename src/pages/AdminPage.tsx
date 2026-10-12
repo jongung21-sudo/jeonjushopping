@@ -104,7 +104,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
   const [taxes, setTaxes] = useState<TaxInvoice[]>(() => {
     try {
       const saved = localStorage.getItem('jeonjulee_taxes_v2');
-      return saved ? JSON.parse(saved) : INITIAL_TAX_INVOICES;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map((t: TaxInvoice) => ({
+            ...t,
+            supplierInfo: {
+              ...t.supplierInfo,
+              ceoName: t.supplierInfo?.ceoName === '이도윤' ? '이종웅' : (t.supplierInfo?.ceoName || '이종웅'),
+            },
+          }));
+        }
+      }
+      return INITIAL_TAX_INVOICES;
     } catch {
       return INITIAL_TAX_INVOICES;
     }
@@ -194,7 +206,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
       supplierInfo: {
         bizNumber: '214-88-99012',
         companyName: '(주)전주이씨 헤리티지',
-        ceoName: '이도윤',
+        ceoName: '이종웅',
         address: '전북특별자치도 전주시 완산구 한지길 88',
         bizType: '제조 및 도소매업',
         bizItem: '한복, 프리미엄 의류, 전통 공예품',
@@ -1714,7 +1726,7 @@ GRANT ALL ON public.products TO anon, authenticated, service_role;`;
             </table>
 
             <div className="text-[11px] text-slate-500 text-right">
-              위 금액을 영수(청구)함 · 주식회사 전주이씨 대표이사 이도윤 (직인생략)
+              위 금액을 영수(청구)함 · 주식회사 전주이씨 대표이사 이종웅 (직인생략)
             </div>
           </div>
         </div>

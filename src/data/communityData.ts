@@ -226,7 +226,7 @@ export const INITIAL_TAX_INVOICES: TaxInvoice[] = [
     supplierInfo: {
       bizNumber: '214-88-99012',
       companyName: '(주)전주이씨 헤리티지',
-      ceoName: '이도윤',
+      ceoName: '이종웅',
       address: '전북특별자치도 전주시 완산구 한지길 88 전주이씨 본원',
       bizType: '제조 및 도소매업',
       bizItem: '한복, 프리미엄 의류, 전통 공예품',
@@ -250,7 +250,7 @@ export const INITIAL_TAX_INVOICES: TaxInvoice[] = [
     supplierInfo: {
       bizNumber: '214-88-99012',
       companyName: '(주)전주이씨 헤리티지',
-      ceoName: '이도윤',
+      ceoName: '이종웅',
       address: '전북특별자치도 전주시 완산구 한지길 88 전주이씨 본원',
       bizType: '제조 및 도소매업',
       bizItem: '한복, 프리미엄 의류, 전통 공예품',

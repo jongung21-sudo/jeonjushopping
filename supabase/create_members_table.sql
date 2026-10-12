@@ -178,7 +178,7 @@ FROM public.members;
 -- 9. 기본 관리자 및 테스트 회원 데이터 등록/갱신
 INSERT INTO public.members (id, email, password, name, phone, postal_code, address, detail_address, points, membership_grade, role)
 VALUES 
-    ('usr-admin-01', 'admin@jeonjulee.kr', 'admin1234', '이도윤 대표', '010-2026-0101', '04383', '서울특별시 용산구 이태원로 240', '전주이씨 헤리티지 하우스 4F', 25000, '헤리티지 프레스티지', 'admin'),
+    ('usr-admin-01', 'admin@jeonjulee.kr', 'admin1234', '이종웅 대표', '010-2026-0101', '04383', '서울특별시 용산구 이태원로 240', '전주이씨 헤리티지 하우스 4F', 25000, '헤리티지 프레스티지', 'admin'),
     ('usr-customer-01', 'customer@jeonjulee.kr', 'customer1234', '김서연', '010-9876-5432', '06000', '서울특별시 강남구 압구정로 10', '101동 502호', 5000, '전주이씨 가문회원', 'customer')
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,

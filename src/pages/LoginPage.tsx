@@ -72,7 +72,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
                   : 'border-paper-300 bg-paper-100 text-ink-700 hover:border-ink-700'
               }`}
             >
-              관리자 ERP (이도윤)
+              관리자 ERP (이종웅 대표)
             </button>
           </div>
         </div>

@@ -36,7 +36,7 @@ const POINTS_STORAGE_KEY = 'jeonjulee_points_history_v2';
 
 const INITIAL_ADMIN: User = {
   id: 'usr-admin-01',
-  name: '이도윤 대표',
+  name: '이종웅 대표',
   email: 'admin@jeonjulee.kr',
   password: 'admin1234',
   phone: '010-2026-0101',
@@ -48,6 +48,17 @@ const INITIAL_ADMIN: User = {
   points: 25000,
   couponCount: 5,
   ordersCount: 8,
+};
+
+const normalizeAdminUser = (u: User): User => {
+  if (
+    u.id === 'usr-admin-01' ||
+    u.email?.toLowerCase() === 'admin@jeonjulee.kr' ||
+    u.name?.includes('이도윤')
+  ) {
+    return { ...u, name: '이종웅 대표' };
+  }
+  return u;
 };
 
 const INITIAL_CUSTOMER: User = {
@@ -189,7 +200,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem(AUTH_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : INITIAL_CUSTOMER;
+      if (saved) {
+        return normalizeAdminUser(JSON.parse(saved));
+      }
+      return INITIAL_CUSTOMER;
     } catch {
       return INITIAL_CUSTOMER;
     }
@@ -198,7 +212,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [allUsers, setAllUsers] = useState<User[]>(() => {
     try {
       const saved = localStorage.getItem(USERS_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : INITIAL_MEMBERS;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map(normalizeAdminUser);
+        }
+      }
+      return INITIAL_MEMBERS;
     } catch {
       return INITIAL_MEMBERS;
     }
@@ -258,22 +278,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [pointHistory]);
 
-  // Supabase members 테이블에서 회원 목록 동기화
+  // Supabase members 테이블에서 회원 목록 동기화 (관리자 성명 '이종웅 대표' 자동 동기화)
   const refreshMembers = async () => {
     if (!isSupabaseConfigured()) return;
+    // Supabase DB의 관리자 계정도 '이종웅 대표'로 최신화
+    await dbService.saveProfile(INITIAL_ADMIN, INITIAL_ADMIN.password);
     const remoteMembers = await dbService.fetchProfiles();
     if (remoteMembers && remoteMembers.length > 0) {
+      const normalizedRemote = remoteMembers.map(normalizeAdminUser);
       setAllUsers((prev) => {
-        const remoteMap = new Map(remoteMembers.map((u) => [u.email.toLowerCase(), u]));
-        const localOnly = prev.filter((u) => !remoteMap.has(u.email.toLowerCase()));
-        return [...remoteMembers, ...localOnly];
+        const remoteMap = new Map(normalizedRemote.map((u) => [u.email.toLowerCase(), u]));
+        const localOnly = prev.filter((u) => !remoteMap.has(u.email.toLowerCase())).map(normalizeAdminUser);
+        return [...normalizedRemote, ...localOnly];
       });
     }
   };
 
   // 현재 모든 회원을 Supabase members 테이블에 일괄 업로드
   const syncAllMembersToCloud = async () => {
-    return await dbService.syncAllMembersToSupabase(allUsers);
+    return await dbService.syncAllMembersToSupabase(allUsers.map(normalizeAdminUser));
   };
 
   useEffect(() => {
@@ -287,12 +310,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (password) {
       const serverUser = await dbService.authenticateMember(trimmed, password);
       if (serverUser) {
-        setUser(serverUser);
+        const normalized = normalizeAdminUser(serverUser);
+        setUser(normalized);
         setAllUsers((prev) => {
           const filtered = prev.filter((u) => u.email.toLowerCase() !== trimmed);
-          return [serverUser, ...filtered];
+          return [normalized, ...filtered];
         });
-        showToast(`${serverUser.name}님, 전주이씨 공식 부티크에 로그인되었습니다.`, 'success');
+        showToast(`${normalized.name}님, 전주이씨 공식 부티크에 로그인되었습니다.`, 'success');
         return true;
       }
     }
