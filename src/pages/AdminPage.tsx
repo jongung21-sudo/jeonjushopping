@@ -257,7 +257,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
     setProdFormCategory(prod.category);
     setProdFormPrice(prod.price);
     setProdFormOrigPrice(prod.originalPrice || '');
-    setProdFormStock(30 + (stockAdjustment[prod.id] || 0));
+    setProdFormStock((prod.stock ?? 30) + (stockAdjustment[prod.id] || 0));
     setProdFormIsNew(Boolean(prod.isNew));
     setProdFormIsBest(Boolean(prod.isBest));
     setProdFormIsSoldOut(Boolean(prod.isSoldOut));
@@ -402,6 +402,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
         category: prodFormCategory,
         price: Number(prodFormPrice),
         originalPrice: prodFormOrigPrice ? Number(prodFormOrigPrice) : undefined,
+        stock: Number(prodFormStock),
         isNew: prodFormIsNew,
         isBest: prodFormIsBest,
         isSoldOut: prodFormIsSoldOut,
@@ -415,9 +416,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
         colors: colorList.length > 0 ? colorList : [{ name: '기본 (Default)', code: '#121212' }],
       };
 
+      // 재고 오프셋 초기화 (prod.stock에 반영됨)
+      setStockAdjustment((prev) => ({ ...prev, [editingProduct.id]: 0 }));
+
       const res = await updateProduct(editingProduct.id, updates);
       if (res.success) {
-        showToast(`[${prodFormName}] 상품이 성공적으로 수정되었습니다.`, 'success');
+        showToast(res.message || `[${prodFormName}] 상품이 Supabase products 테이블에 수정되었습니다.`, 'success');
       } else {
         showToast(res.message, 'error');
       }
@@ -430,6 +434,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
         category: prodFormCategory,
         price: Number(prodFormPrice),
         originalPrice: prodFormOrigPrice ? Number(prodFormOrigPrice) : undefined,
+        stock: Number(prodFormStock),
         isNew: prodFormIsNew,
         isBest: prodFormIsBest,
         isSoldOut: prodFormIsSoldOut,
@@ -450,7 +455,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
 
       const res = await addProduct(newProduct);
       if (res.success) {
-        showToast(`[${newProduct.name}] 신규 상품이 등록되었습니다!`, 'success');
+        showToast(res.message || `[${newProduct.name}] 신규 상품이 Supabase products 테이블에 업로드되었습니다!`, 'success');
       } else {
         showToast(res.message, 'error');
       }
@@ -463,12 +468,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
   const handleDeleteProduct = async (prod: Product) => {
     if (
       window.confirm(
-        `정말로 "[${prod.name}]" 상품을 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없으며, Supabase DB 및 쇼핑몰 목록에서 영구 삭제됩니다.`
+        `정말로 "[${prod.name}]" 상품을 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없으며, Supabase(cpzyrpaenvzfshqqpmrf) products 테이블 및 쇼핑몰 목록에서 즉시 삭제됩니다.`
       )
     ) {
       const res = await deleteProduct(prod.id);
       if (res.success) {
-        showToast(`[${prod.name}] 상품이 성공적으로 삭제되었습니다.`, 'success');
+        showToast(res.message || `[${prod.name}] 상품이 Supabase products 테이블에서 삭제되었습니다.`, 'success');
       } else {
         showToast(res.message, 'error');
       }
@@ -480,19 +485,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
     const nextState = !prod.isSoldOut;
     const res = await updateProduct(prod.id, { isSoldOut: nextState });
     if (res.success) {
-      showToast(`[${prod.name}] 상태가 "${nextState ? '품절' : '판매중'}"으로 변경되었습니다.`);
+      showToast(`[${prod.name}] 상태가 "${nextState ? '품절' : '판매중'}"으로 Supabase에 반영되었습니다.`);
+    } else {
+      showToast(res.message, 'error');
     }
   };
 
-  // 기본 상품 10종 DB 일괄 업로드
+  // 전체 상품 DB 일괄 업로드
   const handleSyncSeedToSupabase = async () => {
-    if (
-      !window.confirm(
-        '전주이씨 기본 명품 컬렉션 10종 상품을 Supabase products 테이블에 일괄 업로드하시겠습니까?'
-      )
-    ) {
-      return;
-    }
     setIsSyncingProducts(true);
     try {
       const res = await syncAllToSupabase();
@@ -511,10 +511,63 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
     setIsSyncingProducts(true);
     try {
       await refreshProducts();
-      showToast('Supabase products 테이블과 최신 동기화 완료!');
+      showToast('Supabase(cpzyrpaenvzfshqqpmrf) products 테이블과 최신 동기화 완료!');
     } finally {
       setIsSyncingProducts(false);
     }
+  };
+
+  // products 테이블 SQL 원클릭 복사
+  const handleCopyProductsSql = () => {
+    const sql = `-- 전주이씨 (JEONJU LEE) 상품(products) 마스터 테이블 생성 및 권한 설정 SQL
+-- 대상 프로젝트: https://cpzyrpaenvzfshqqpmrf.supabase.co
+CREATE TABLE IF NOT EXISTS public.products (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    eng_name TEXT DEFAULT '',
+    category TEXT NOT NULL,
+    price INTEGER NOT NULL CHECK (price >= 0),
+    original_price INTEGER DEFAULT NULL,
+    is_new BOOLEAN DEFAULT false,
+    is_best BOOLEAN DEFAULT false,
+    is_sold_out BOOLEAN DEFAULT false,
+    colors JSONB DEFAULT '[]'::jsonb,
+    sizes TEXT[] DEFAULT ARRAY[]::text[],
+    images TEXT[] DEFAULT ARRAY[]::text[],
+    thumbnail TEXT DEFAULT '',
+    short_desc TEXT DEFAULT '',
+    detail_desc TEXT DEFAULT '',
+    fabric TEXT DEFAULT '',
+    fit TEXT DEFAULT '',
+    care TEXT[] DEFAULT ARRAY[]::text[],
+    stock INTEGER DEFAULT 30 CHECK (stock >= 0),
+    rating NUMERIC(2,1) DEFAULT 5.0,
+    review_count INTEGER DEFAULT 0,
+    sales_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 30;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "products_select_policy" ON public.products;
+CREATE POLICY "products_select_policy" ON public.products FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "products_insert_policy" ON public.products;
+CREATE POLICY "products_insert_policy" ON public.products FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "products_update_policy" ON public.products;
+CREATE POLICY "products_update_policy" ON public.products FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "products_delete_policy" ON public.products;
+CREATE POLICY "products_delete_policy" ON public.products FOR DELETE TO anon, authenticated USING (true);
+
+GRANT ALL ON public.products TO anon, authenticated, service_role;`;
+    navigator.clipboard.writeText(sql);
+    showToast('products 테이블 생성 SQL이 복사되었습니다! Supabase SQL Editor에 붙여넣고 Run을 실행하세요.');
   };
 
   // 신규 발주서 등록
@@ -919,6 +972,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
               {/* 액션 버튼 그룹 */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
+                  onClick={handleCopyProductsSql}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-paper-50 border border-bronze/50 hover:bg-paper-200 text-xs font-serif-kr text-ink-800 transition-colors"
+                  title="Supabase SQL Editor에 실행할 products 테이블 및 권한 SQL 복사"
+                >
+                  <Database className="w-3.5 h-3.5 text-bronze" />
+                  <span>products 테이블 SQL 복사</span>
+                </button>
+
+                <button
                   onClick={handleRefreshProducts}
                   disabled={isSyncingProducts}
                   className="flex items-center gap-1.5 px-3 py-2 bg-paper-50 border border-paper-300 hover:bg-paper-200 text-xs font-serif-kr text-ink-700 transition-colors disabled:opacity-50"
@@ -932,10 +994,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
                   onClick={handleSyncSeedToSupabase}
                   disabled={isSyncingProducts}
                   className="flex items-center gap-1.5 px-3 py-2 bg-paper-50 border border-paper-300 hover:border-ink-700 text-xs font-serif-kr text-ink-800 transition-colors disabled:opacity-50"
-                  title="전주이씨 기본 10종 상품 데이터를 Supabase DB에 일괄 저장"
+                  title="현재 등록된 전체 상품 데이터를 Supabase products 테이블에 일괄 업로드"
                 >
                   <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
-                  <span>기본 10종 DB 일괄 업로드</span>
+                  <span>전체 상품 DB 업로드</span>
                 </button>
 
                 <button
@@ -1033,7 +1095,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {filteredProducts.map((prod) => {
-                  const currentStock = 30 + (stockAdjustment[prod.id] || 0);
+                  const currentStock = (prod.stock ?? 30) + (stockAdjustment[prod.id] || 0);
                   const isSold = Boolean(prod.isSoldOut);
 
                   return (
@@ -1135,44 +1197,34 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
                               <button
                                 onClick={() => {
                                   const next = Math.max(0, currentStock - 1);
-                                  setStockAdjustment({
-                                    ...stockAdjustment,
-                                    [prod.id]: next - 30,
-                                  });
-                                  if (next === 0) {
-                                    updateProduct(prod.id, { isSoldOut: true });
-                                  }
+                                  setStockAdjustment((prev) => ({ ...prev, [prod.id]: 0 }));
+                                  updateProduct(prod.id, { stock: next, isSoldOut: next === 0 ? true : prod.isSoldOut });
                                 }}
                                 className="w-5 h-5 flex items-center justify-center bg-paper-200 border border-paper-300 hover:bg-paper-300 text-[11px] font-sans"
-                                title="1개 감소"
+                                title="1개 감소 (DB 즉시 반영)"
                               >
                                 -
                               </button>
                               <button
                                 onClick={() => {
-                                  setStockAdjustment({
-                                    ...stockAdjustment,
-                                    [prod.id]: (stockAdjustment[prod.id] || 0) + 1,
-                                  });
-                                  if (isSold) {
-                                    updateProduct(prod.id, { isSoldOut: false });
-                                  }
+                                  const next = currentStock + 1;
+                                  setStockAdjustment((prev) => ({ ...prev, [prod.id]: 0 }));
+                                  updateProduct(prod.id, { stock: next, isSoldOut: false });
                                 }}
                                 className="w-5 h-5 flex items-center justify-center bg-paper-200 border border-paper-300 hover:bg-paper-300 text-[11px] font-sans"
-                                title="1개 증가"
+                                title="1개 증가 (DB 즉시 반영)"
                               >
                                 +
                               </button>
                               <button
                                 onClick={() => {
-                                  setStockAdjustment({
-                                    ...stockAdjustment,
-                                    [prod.id]: (stockAdjustment[prod.id] || 0) + 10,
-                                  });
-                                  showToast(`${prod.name} +10개 입고 완료`);
+                                  const next = currentStock + 10;
+                                  setStockAdjustment((prev) => ({ ...prev, [prod.id]: 0 }));
+                                  updateProduct(prod.id, { stock: next, isSoldOut: false });
+                                  showToast(`${prod.name} +10개 입고 완료 (Supabase 반영)`);
                                 }}
                                 className="px-1.5 py-0.5 bg-paper-200 border border-paper-300 hover:bg-paper-300 text-[10px] font-serif-kr"
-                                title="10개 대량 입고"
+                                title="10개 대량 입고 (DB 즉시 반영)"
                               >
                                 +10
                               </button>

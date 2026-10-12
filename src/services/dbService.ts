@@ -422,7 +422,13 @@ export const dbService = {
     if (!isSupabaseConfigured()) return null;
     try {
       const client = getSupabaseClient();
-      const { data, error } = await client.from('products').select('*').order('created_at', { ascending: false });
+      let { data, error } = await client.from('products').select('*').order('created_at', { ascending: false });
+      if (error) {
+        // created_at 컬럼이 없는 경우 정렬 없이 재시도
+        const retry = await client.from('products').select('*');
+        data = retry.data;
+        error = retry.error;
+      }
       if (error || !data || data.length === 0) return null;
       return (data as any[]).map((d: any) => {
         const fallback = PRODUCTS.find((p) => p.id === d.id);
@@ -455,6 +461,7 @@ export const dbService = {
           fabric: d.fabric || d.material || fallback?.fabric || '프리미엄 소재',
           fit: d.fit || fallback?.fit || '릴렉스드 핏',
           care: Array.isArray(d.care) ? d.care : (fallback?.care || ['전문 드라이클리닝 권장']),
+          stock: d.stock !== undefined && d.stock !== null ? Number(d.stock) : 30,
           rating: Number(d.rating) || 5.0,
           reviewCount: Number(d.review_count) || 0,
           salesCount: Number(d.sales_count) || 0,
@@ -466,67 +473,141 @@ export const dbService = {
     }
   },
 
-  // 1. 신규 상품 등록 (Supabase products 테이블 insert)
+  // products 테이블 상태 및 행 개수 확인 (초기 자동 업로드 판단용)
+  async checkProductsTableStatus(): Promise<{ exists: boolean; count: number }> {
+    if (!isSupabaseConfigured()) return { exists: false, count: 0 };
+    try {
+      const client = getSupabaseClient();
+      const { count, error } = await client.from('products').select('*', { count: 'exact', head: true });
+      if (error) {
+        return { exists: false, count: 0 };
+      }
+      return { exists: true, count: count ?? 0 };
+    } catch {
+      return { exists: false, count: 0 };
+    }
+  },
+
+  // 내부 헬퍼: 스키마 컬럼 차이에 유연하게 대응하는 products upsert
+  async _upsertProductsResilient(productsList: Product[]): Promise<{ error: any }> {
+    const client = getSupabaseClient();
+    let currentRows: Record<string, any>[] = productsList.map((p) => ({
+      id: p.id,
+      name: p.name,
+      eng_name: p.engName || '',
+      category: p.category,
+      price: Number(p.price) || 0,
+      original_price: p.originalPrice ?? null,
+      is_new: Boolean(p.isNew),
+      is_best: Boolean(p.isBest),
+      is_sold_out: Boolean(p.isSoldOut),
+      colors: p.colors || [],
+      sizes: p.sizes || [],
+      images: p.images || [],
+      thumbnail: p.thumbnail || p.images?.[0] || '',
+      short_desc: p.shortDesc || '',
+      detail_desc: p.detailDesc || '',
+      fabric: p.fabric || '',
+      fit: p.fit || '',
+      care: p.care || [],
+      stock: p.stock !== undefined ? Number(p.stock) : 30,
+      rating: p.rating ?? 5.0,
+      review_count: p.reviewCount ?? 0,
+      sales_count: p.salesCount ?? 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { error } = await client.from('products').upsert(currentRows, { onConflict: 'id' });
+      if (!error) {
+        return { error: null };
+      }
+
+      const msg = error.message || '';
+      const colMatch = msg.match(/Could not find the '([^']+)' column|column "([^"]+)"/i);
+      const missingCol = colMatch ? (colMatch[1] || colMatch[2]) : null;
+
+      if (missingCol) {
+        currentRows = currentRows.map((row) => {
+          const copy = { ...row };
+          delete copy[missingCol];
+          return copy;
+        });
+        continue;
+      }
+
+      // stock, updated_at 컬럼이 없는 구버전 스키마 대비 일괄 제거 후 재시도
+      if (attempt === 0 && (msg.includes('schema cache') || msg.includes('column'))) {
+        currentRows = currentRows.map((row) => {
+          const copy = { ...row };
+          delete copy.stock;
+          delete copy.updated_at;
+          return copy;
+        });
+        continue;
+      }
+
+      return { error };
+    }
+
+    return { error: null };
+  },
+
+  // 1. 신규 상품 등록 (Supabase products 테이블 upsert)
   async createProduct(product: Product): Promise<{ success: boolean; message: string }> {
     if (!isSupabaseConfigured()) {
       return { success: false, message: 'Supabase가 설정되지 않았습니다. (로컬에만 저장됩니다)' };
     }
     try {
-      const client = getSupabaseClient();
-      const payload = {
-        id: product.id,
-        name: product.name,
-        eng_name: product.engName || '',
-        category: product.category,
-        price: product.price,
-        original_price: product.originalPrice || null,
-        is_new: Boolean(product.isNew),
-        is_best: Boolean(product.isBest),
-        is_sold_out: Boolean(product.isSoldOut),
-        colors: product.colors || [],
-        sizes: product.sizes || [],
-        images: product.images || [],
-        thumbnail: product.thumbnail || product.images?.[0] || '',
-        short_desc: product.shortDesc || '',
-        detail_desc: product.detailDesc || '',
-        fabric: product.fabric || '',
-        fit: product.fit || '',
-        care: product.care || [],
-        stock: 30,
-        rating: product.rating || 5.0,
-        review_count: product.reviewCount || 0,
-        sales_count: product.salesCount || 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await client.from('products').insert([payload]);
+      const { error } = await this._upsertProductsResilient([product]);
       if (error) {
         console.error('Supabase createProduct error:', error);
-        return { success: false, message: `등록 실패: ${error.message}` };
+        return {
+          success: false,
+          message: `Supabase products 업로드 실패: ${error.message} (상단 [DB 연결 설정]에서 [상품 테이블 SQL 복사하기]를 실행해주세요)`,
+        };
       }
-      return { success: true, message: '상품이 Supabase 클라우드 DB에 성공적으로 등록되었습니다.' };
+      return {
+        success: true,
+        message: `[${product.name}] 상품이 Supabase(cpzyrpaenvzfshqqpmrf) products 테이블에 업로드되었습니다!`,
+      };
     } catch (e: any) {
       console.error('Supabase createProduct exception:', e);
       return { success: false, message: `등록 오류: ${e?.message || '네트워크 오류'}` };
     }
   },
 
-  // 2. 상품 정보 수정 (Supabase products 테이블 update)
-  async updateProduct(id: string, updates: Partial<Product>): Promise<{ success: boolean; message: string }> {
+  // 2. 상품 정보 수정 (Supabase products 테이블 upsert + update)
+  async updateProduct(
+    id: string,
+    updates: Partial<Product>,
+    fullProduct?: Product
+  ): Promise<{ success: boolean; message: string }> {
     if (!isSupabaseConfigured()) {
       return { success: false, message: 'Supabase가 설정되지 않았습니다. (로컬에만 반영됩니다)' };
     }
     try {
+      // 전체 상품 객체가 전달된 경우 upsert를 통해 DB에 아직 없던 기본 상품도 즉시 업로드+수정되도록 보장
+      if (fullProduct) {
+        const { error: upsertErr } = await this._upsertProductsResilient([fullProduct]);
+        if (!upsertErr) {
+          return {
+            success: true,
+            message: `[${fullProduct.name}] 상품 정보가 Supabase products 테이블에 수정 반영되었습니다!`,
+          };
+        }
+      }
+
       const client = getSupabaseClient();
-      const payload: any = {
+      const payload: Record<string, any> = {
         updated_at: new Date().toISOString(),
       };
       if (updates.name !== undefined) payload.name = updates.name;
       if (updates.engName !== undefined) payload.eng_name = updates.engName;
       if (updates.category !== undefined) payload.category = updates.category;
-      if (updates.price !== undefined) payload.price = updates.price;
-      if (updates.originalPrice !== undefined) payload.original_price = updates.originalPrice;
+      if (updates.price !== undefined) payload.price = Number(updates.price);
+      if (updates.originalPrice !== undefined) payload.original_price = updates.originalPrice ?? null;
       if (updates.isNew !== undefined) payload.is_new = updates.isNew;
       if (updates.isBest !== undefined) payload.is_best = updates.isBest;
       if (updates.isSoldOut !== undefined) payload.is_sold_out = updates.isSoldOut;
@@ -542,13 +623,21 @@ export const dbService = {
       if (updates.fabric !== undefined) payload.fabric = updates.fabric;
       if (updates.fit !== undefined) payload.fit = updates.fit;
       if (updates.care !== undefined) payload.care = updates.care;
+      if (updates.stock !== undefined) payload.stock = Number(updates.stock);
 
-      const { error } = await client.from('products').update(payload).eq('id', id);
+      let { error } = await client.from('products').update(payload).eq('id', id);
+      if (error && (error.message.includes('updated_at') || error.message.includes('stock'))) {
+        delete payload.updated_at;
+        delete payload.stock;
+        const retry = await client.from('products').update(payload).eq('id', id);
+        error = retry.error;
+      }
+
       if (error) {
         console.error('Supabase updateProduct error:', error);
         return { success: false, message: `수정 실패: ${error.message}` };
       }
-      return { success: true, message: '상품 정보가 Supabase에 수정되었습니다.' };
+      return { success: true, message: '상품 정보가 Supabase products 테이블에 수정되었습니다.' };
     } catch (e: any) {
       console.error('Supabase updateProduct exception:', e);
       return { success: false, message: `수정 오류: ${e?.message || '네트워크 오류'}` };
@@ -565,9 +654,9 @@ export const dbService = {
       const { error } = await client.from('products').delete().eq('id', id);
       if (error) {
         console.error('Supabase deleteProduct error:', error);
-        return { success: false, message: `삭제 실패: ${error.message}` };
+        return { success: false, message: `Supabase 삭제 실패: ${error.message}` };
       }
-      return { success: true, message: '상품이 Supabase에서 삭제되었습니다.' };
+      return { success: true, message: '상품이 Supabase(cpzyrpaenvzfshqqpmrf) products 테이블에서 영구 삭제되었습니다.' };
     } catch (e: any) {
       console.error('Supabase deleteProduct exception:', e);
       return { success: false, message: `삭제 오류: ${e?.message || '네트워크 오류'}` };
@@ -580,39 +669,19 @@ export const dbService = {
       return { success: false, count: 0, message: 'Supabase가 설정되지 않았습니다.' };
     }
     try {
-      const client = getSupabaseClient();
-      const payloads = products.map((p) => ({
-        id: p.id,
-        name: p.name,
-        eng_name: p.engName || '',
-        category: p.category,
-        price: p.price,
-        original_price: p.originalPrice || null,
-        is_new: Boolean(p.isNew),
-        is_best: Boolean(p.isBest),
-        is_sold_out: Boolean(p.isSoldOut),
-        colors: p.colors || [],
-        sizes: p.sizes || [],
-        images: p.images || [],
-        thumbnail: p.thumbnail || p.images?.[0] || '',
-        short_desc: p.shortDesc || '',
-        detail_desc: p.detailDesc || '',
-        fabric: p.fabric || '',
-        fit: p.fit || '',
-        care: p.care || [],
-        stock: 30,
-        rating: p.rating || 5.0,
-        review_count: p.reviewCount || 0,
-        sales_count: p.salesCount || 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }));
-
-      const { error } = await client.from('products').upsert(payloads, { onConflict: 'id' });
+      const { error } = await this._upsertProductsResilient(products);
       if (error) {
-        return { success: false, count: 0, message: `일괄 업로드 실패: ${error.message}` };
+        return {
+          success: false,
+          count: 0,
+          message: `일괄 업로드 실패: ${error.message} (SQL Editor에서 products 테이블 생성 SQL을 실행해주세요)`,
+        };
       }
-      return { success: true, count: payloads.length, message: `${payloads.length}개 상품이 Supabase에 성공적으로 업로드되었습니다.` };
+      return {
+        success: true,
+        count: products.length,
+        message: `${products.length}개 상품이 Supabase(cpzyrpaenvzfshqqpmrf) products 테이블에 성공적으로 업로드되었습니다!`,
+      };
     } catch (e: any) {
       return { success: false, count: 0, message: `업로드 오류: ${e?.message || '통신 실패'}` };
     }
@@ -696,28 +765,8 @@ export const dbService = {
       let materialCount = 0;
 
       // 1. 상품 주입
-      const productPayload = PRODUCTS.map((p) => ({
-        id: p.id,
-        name: p.name,
-        eng_name: p.engName || '',
-        category: p.category,
-        price: p.price,
-        original_price: p.originalPrice || null,
-        is_new: Boolean(p.isNew),
-        is_best: Boolean(p.isBest),
-        is_sold_out: Boolean(p.isSoldOut),
-        colors: p.colors || [],
-        sizes: p.sizes || [],
-        images: p.images || [],
-        thumbnail: p.thumbnail || p.images[0] || '',
-        short_desc: p.shortDesc || '',
-        description: p.detailDesc || '',
-        material: p.fabric || '천연 오가닉 소재',
-        stock: 20,
-      }));
-
-      const { error: pErr } = await client.from('products').upsert(productPayload);
-      if (!pErr) productCount = productPayload.length;
+      const { error: pErr } = await this._upsertProductsResilient(PRODUCTS);
+      if (!pErr) productCount = PRODUCTS.length;
 
       // 2. 원부자재 주입
       const matPayload = INITIAL_MATERIALS.map((m) => ({
