@@ -5,16 +5,20 @@ import {
   MapPin,
   CreditCard,
   ArrowRight,
+  ExternalLink,
   Loader2,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
 import {
+  confirmPaymentWithBackend,
   getPendingOrderSession,
   clearPendingOrderSession,
   isOrderAlreadyConfirmed,
   markOrderConfirmed,
+  PaymentConfirmResponse,
 } from '../services/paymentService';
 import { Order } from '../types';
 
@@ -28,64 +32,112 @@ export const PaymentSuccessPage: React.FC<PaymentSuccessPageProps> = ({ onNaviga
   const { showToast } = useToast();
 
   const [isVerifying, setIsVerifying] = useState<boolean>(true);
+  const [confirmResult, setConfirmResult] = useState<PaymentConfirmResponse | null>(null);
   const [finalizedOrder, setFinalizedOrder] = useState<Order | null>(null);
   const processedRef = useRef<boolean>(false);
-
-  const params = new URLSearchParams(window.location.search);
-  const orderId = params.get('orderId') || `ORD-${Date.now()}`;
-  const amountParam = Number(params.get('amount') || 0);
-  const methodParam = params.get('method') || '신용/체크카드';
 
   useEffect(() => {
     if (processedRef.current) return;
     processedRef.current = true;
 
-    const pendingOrder = getPendingOrderSession();
+    const verifyAndApprove = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const paymentKey = params.get('paymentKey') || '';
+      const orderId = params.get('orderId') || '';
+      const amountParam = Number(params.get('amount') || 0);
 
-    if (!isOrderAlreadyConfirmed(orderId) && pendingOrder) {
-      if (pendingOrder.usedPoints > 0) {
-        usePoints(pendingOrder.usedPoints, '주문 결제 시 포인트 사용');
+      if (!paymentKey || !orderId || !amountParam) {
+        const failQuery = new URLSearchParams({
+          code: 'INVALID_REQUEST',
+          message: '결제 인증 정보(paymentKey, orderId, amount)가 올바르지 않습니다.',
+          orderId: orderId || '-',
+        }).toString();
+        onNavigate(`/payment/fail?${failQuery}`);
+        return;
       }
 
-      const created = addOrder({
-        id: `ord-${Date.now()}`,
-        orderNumber: orderId,
-        items: pendingOrder.items,
-        totalProductPrice: pendingOrder.totalProductPrice,
-        discountPrice: pendingOrder.discountPrice,
-        usedPoints: pendingOrder.usedPoints,
-        couponDiscount: pendingOrder.couponDiscount,
-        couponCode: pendingOrder.couponCode,
-        shippingFee: pendingOrder.shippingFee,
-        finalPrice: amountParam || pendingOrder.finalPrice,
-        status: '결제완료',
-        recipientName: pendingOrder.recipientName,
-        recipientPhone: pendingOrder.recipientPhone,
-        postalCode: pendingOrder.postalCode,
-        address: pendingOrder.address,
-        detailAddress: pendingOrder.detailAddress,
-        deliveryMemo: pendingOrder.deliveryMemo,
-        paymentMethod: methodParam || pendingOrder.paymentMethod,
+      const pendingOrder = getPendingOrderSession();
+
+      // 실제 토스페이먼츠 승인 서버(https://api.tosspayments.com/v1/payments/confirm) 호출하여 최종 결제 승인!
+      const verification = await confirmPaymentWithBackend({
+        paymentKey,
+        orderId,
+        amount: amountParam,
+        method: pendingOrder?.paymentMethod,
       });
 
-      markOrderConfirmed(orderId);
-      clearCart();
-      clearPendingOrderSession();
-      setFinalizedOrder(created);
-      showToast('결제가 완료되어 주문이 접수되었습니다!');
-    } else {
-      const existing = orders.find((o) => o.orderNumber === orderId);
-      if (existing) setFinalizedOrder(existing);
-    }
+      if (!verification.success) {
+        const failQuery = new URLSearchParams({
+          code: verification.errorCode || 'CONFIRM_FAILED',
+          message: verification.errorMessage || '토스페이먼츠 최종 결제 승인에 실패했습니다.',
+          orderId,
+        }).toString();
+        onNavigate(`/payment/fail?${failQuery}`);
+        return;
+      }
 
-    setTimeout(() => setIsVerifying(false), 300);
+      setConfirmResult(verification);
+
+      // 승인 성공 시 주문 생성 및 Supabase DB 반영
+      if (!isOrderAlreadyConfirmed(orderId) && pendingOrder) {
+        if (pendingOrder.usedPoints > 0) {
+          usePoints(pendingOrder.usedPoints, '주문 결제 시 포인트 사용');
+        }
+
+        const created = addOrder({
+          id: `ord-${Date.now()}`,
+          orderNumber: orderId,
+          items: pendingOrder.items,
+          totalProductPrice: pendingOrder.totalProductPrice,
+          discountPrice: pendingOrder.discountPrice,
+          usedPoints: pendingOrder.usedPoints,
+          couponDiscount: pendingOrder.couponDiscount,
+          couponCode: pendingOrder.couponCode,
+          shippingFee: pendingOrder.shippingFee,
+          finalPrice: verification.amount,
+          status:
+            verification.method.includes('가상계좌') || verification.method.includes('무통장')
+              ? '입금대기'
+              : '결제완료',
+          recipientName: pendingOrder.recipientName,
+          recipientPhone: pendingOrder.recipientPhone,
+          postalCode: pendingOrder.postalCode,
+          address: pendingOrder.address,
+          detailAddress: pendingOrder.detailAddress,
+          deliveryMemo: pendingOrder.deliveryMemo,
+          paymentMethod: verification.method,
+          paymentKey: verification.paymentKey,
+          pgProvider: 'tosspayments',
+          receiptUrl: verification.receiptUrl,
+          approvedAt: verification.approvedAt,
+        });
+
+        markOrderConfirmed(orderId);
+        clearCart();
+        clearPendingOrderSession();
+        setFinalizedOrder(created);
+        showToast('토스페이먼츠 실제 결제 승인 및 주문 등록이 완료되었습니다!');
+      } else {
+        const existing = orders.find((o) => o.orderNumber === orderId);
+        if (existing) setFinalizedOrder(existing);
+      }
+
+      setIsVerifying(false);
+    };
+
+    verifyAndApprove();
   }, []);
 
   if (isVerifying) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center px-4 text-center">
-        <Loader2 size={36} className="animate-spin text-[#0064FF] mb-4" />
-        <h2 className="text-xl font-bold text-stone-900">결제 완료 처리 중입니다...</h2>
+        <Loader2 size={38} className="animate-spin text-[#0064FF] mb-4" />
+        <h2 className="text-xl font-bold text-stone-900 mb-1">
+          토스페이먼츠 결제 승인 서버 확인 중...
+        </h2>
+        <p className="text-xs text-stone-500">
+          실제 결제 승인(api.tosspayments.com/v1/payments/confirm)을 진행하고 있습니다. 잠시만 기다려 주세요.
+        </p>
       </div>
     );
   }
@@ -96,11 +148,15 @@ export const PaymentSuccessPage: React.FC<PaymentSuccessPageProps> = ({ onNaviga
         <div className="w-16 h-16 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto mb-4">
           <CheckCircle2 size={34} />
         </div>
+        <span className="inline-flex items-center gap-1 text-xs font-bold text-[#0064FF] bg-blue-50 px-3 py-1 rounded-full border border-blue-200 mb-3">
+          <ShieldCheck size={14} />
+          토스페이먼츠 실결제 승인 완료
+        </span>
         <h1 className="font-serif text-2xl md:text-3xl font-bold text-stone-900 mb-2">
           결제 및 주문이 완료되었습니다!
         </h1>
         <p className="text-sm text-stone-500">
-          주문번호: <strong className="text-stone-800">{orderId}</strong>
+          주문번호: <strong className="text-stone-800">{confirmResult?.orderId}</strong>
         </p>
 
         {/* 결제 요약 */}
@@ -109,15 +165,28 @@ export const PaymentSuccessPage: React.FC<PaymentSuccessPageProps> = ({ onNaviga
             <span className="text-stone-500">결제 수단</span>
             <span className="font-bold text-stone-900 flex items-center gap-1.5">
               <CreditCard size={15} />
-              {finalizedOrder?.paymentMethod || methodParam}
+              {confirmResult?.method || finalizedOrder?.paymentMethod}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-stone-500">최종 결제 금액</span>
+            <span className="text-stone-500">최종 승인 금액</span>
             <span className="text-lg font-black text-[#0064FF]">
-              {(finalizedOrder?.finalPrice || amountParam).toLocaleString()}원
+              {(confirmResult?.amount || finalizedOrder?.finalPrice || 0).toLocaleString()}원
             </span>
           </div>
+          {confirmResult?.receiptUrl && (
+            <div className="flex justify-between items-center pt-2 border-t border-stone-200">
+              <span className="text-stone-500 text-xs">토스페이먼츠 매출전표</span>
+              <a
+                href={confirmResult.receiptUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-bold text-[#0064FF] hover:underline flex items-center gap-1"
+              >
+                실제 영수증 확인하기 <ExternalLink size={12} />
+              </a>
+            </div>
+          )}
           {finalizedOrder && (
             <div className="pt-3 border-t border-stone-200 flex items-start justify-between gap-4">
               <span className="text-stone-500 shrink-0 flex items-center gap-1">
