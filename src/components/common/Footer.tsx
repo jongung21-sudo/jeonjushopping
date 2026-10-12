@@ -1,12 +1,15 @@
 import React from 'react';
 import { Logo } from './Logo';
 import { ArrowUpRight } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 interface FooterProps {
   navigate: (path: string) => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({ navigate }) => {
+  const { isLoggedIn, isAdmin } = useAuth();
+
   return (
     <footer className="bg-paper-200 border-t border-paper-300 text-ink-700 pt-16 pb-24 md:pb-16 mt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -138,13 +141,15 @@ export const Footer: React.FC<FooterProps> = ({ navigate }) => {
                   <polygon points="10 15 15 12 10 9 10 15" fill="currentColor"/>
                 </svg>
               </a>
-              <button
-                onClick={() => navigate('/admin')}
-                className="text-[11px] text-ink-400 hover:text-ink-900 underline flex items-center gap-0.5 ml-2"
-                title="관리자 시스템 바로가기"
-              >
-                Admin <ArrowUpRight className="w-3 h-3" />
-              </button>
+              {isLoggedIn && isAdmin && (
+                <button
+                  onClick={() => navigate('/admin')}
+                  className="text-[11px] text-lacquer font-semibold hover:text-ink-900 underline flex items-center gap-0.5 ml-2"
+                  title="관리자 페이지 바로가기"
+                >
+                  관리자 페이지 <ArrowUpRight className="w-3 h-3" />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -163,15 +168,19 @@ export const Footer: React.FC<FooterProps> = ({ navigate }) => {
             <button onClick={() => navigate('/shipping-returns')} className="hover:underline">
               전자상거래 표준약관
             </button>
-            <span className="text-paper-400">|</span>
-            <button onClick={() => navigate('/admin')} className="hover:underline text-ink-500">
-              관리자 모드
-            </button>
+            {isLoggedIn && isAdmin && (
+              <>
+                <span className="text-paper-400">|</span>
+                <button onClick={() => navigate('/admin')} className="hover:underline text-lacquer font-semibold">
+                  관리자 페이지
+                </button>
+              </>
+            )}
           </div>
 
           <div className="leading-relaxed text-[11px] text-ink-400 space-y-1">
             <p>
-              상호명: 주식회사 전주이씨 (JEONJU LEE Co., Ltd.) | 대표자: 이성계 | 사업자등록번호: 202-88-01392
+              상호명: 주식회사 전주이씨 (JEONJU LEE Co., Ltd.) | 대표자: 이종웅 | 사업자등록번호: 202-88-01392
               [<span className="underline cursor-pointer">사업자정보확인</span>]
             </p>
             <p>

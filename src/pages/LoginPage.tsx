@@ -10,13 +10,19 @@ interface LoginPageProps {
 export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
   const { login, socialLogin } = useAuth();
   const [email, setEmail] = useState('customer@jeonjulee.kr');
-  const [password, setPassword] = useState('123456');
+  const [password, setPassword] = useState('customer1234');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (email.trim()) {
-      await login(email, password);
-      navigate('/mypage');
+      const ok = await login(email, password);
+      if (ok) {
+        if (email.trim().toLowerCase() === 'admin@jeonjulee.kr') {
+          navigate('/admin');
+        } else {
+          navigate('/mypage');
+        }
+      }
     }
   };
 
@@ -27,7 +33,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
 
   const setTestAccount = (testEmail: string) => {
     setEmail(testEmail);
-    setPassword('123456');
+    setPassword(testEmail === 'admin@jeonjulee.kr' ? 'admin1234' : 'customer1234');
   };
 
   return (

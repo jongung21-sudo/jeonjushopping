@@ -24,7 +24,7 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
   const [dbConnected, setDbConnected] = useState<boolean>(() => isSupabaseConfigured());
   const { totalItemCount } = useCart();
   const { wishlistIds } = useWishlist();
-  const { isLoggedIn, user, logout } = useAuth();
+  const { isLoggedIn, isAdmin, user, logout } = useAuth();
 
   useEffect(() => {
     const syncDbState = () => setDbConnected(isSupabaseConfigured());
@@ -99,7 +99,7 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
             </div>
 
             {/* Center: Desktop Navigation Links */}
-            <nav className="hidden lg:flex items-center space-x-10">
+            <nav className="hidden lg:flex items-center space-x-8 xl:space-x-10">
               {navLinks.map((link) => {
                 const isActive = currentPath === link.path;
                 return (
@@ -119,23 +119,38 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
                   </button>
                 );
               })}
+              {/* 관리자로 로그인했을 때만 상단 네비게이션에 '관리자 페이지' 메뉴 노출 */}
+              {isLoggedIn && isAdmin && (
+                <button
+                  onClick={() => handleNavClick('/admin')}
+                  className={`relative text-xs tracking-[0.12em] font-serif-kr font-bold transition-colors py-1 px-2.5 border rounded-xs ${
+                    currentPath === '/admin'
+                      ? 'bg-lacquer text-paper-100 border-lacquer'
+                      : 'text-lacquer border-lacquer/40 bg-lacquer/5 hover:bg-lacquer hover:text-paper-100'
+                  }`}
+                >
+                  관리자 페이지
+                </button>
+              )}
             </nav>
 
             {/* Right: Actions */}
             <div className="flex items-center space-x-2.5 sm:space-x-4">
-              {/* DB Status Badge (클릭 시 Supabase DB 관리 모달 오픈) */}
-              <button
-                onClick={() => setDbModalOpen(true)}
-                className={`flex items-center gap-1.5 px-2 py-1 text-[11px] font-sans border transition-colors cursor-pointer rounded-xs shadow-2xs ${
-                  dbConnected || isSupabaseConfigured()
-                    ? 'border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
-                    : 'border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100'
-                }`}
-                title="Supabase 실시간 클라우드 DB 연동 관리 모달 열기 (수동 해제 전까지 연결 유지)"
-              >
-                <Database className="w-3.5 h-3.5 text-bronze" />
-                <span className="font-medium">{dbConnected || isSupabaseConfigured() ? 'DB 연결됨' : '로컬 모드'}</span>
-              </button>
+              {/* DB Status Badge (관리자로 로그인했을 때만 노출) */}
+              {isLoggedIn && isAdmin && (
+                <button
+                  onClick={() => setDbModalOpen(true)}
+                  className={`flex items-center gap-1.5 px-2 py-1 text-[11px] font-sans border transition-colors cursor-pointer rounded-xs shadow-2xs ${
+                    dbConnected || isSupabaseConfigured()
+                      ? 'border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+                      : 'border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100'
+                  }`}
+                  title="Supabase 실시간 클라우드 DB 연동 관리 모달 열기 (수동 해제 전까지 연결 유지)"
+                >
+                  <Database className="w-3.5 h-3.5 text-bronze" />
+                  <span className="font-medium">{dbConnected || isSupabaseConfigured() ? 'DB 연결됨' : '로컬 모드'}</span>
+                </button>
+              )}
 
               {/* 회원가입 & 로그인 버튼 그룹 */}
               {!isLoggedIn ? (
@@ -163,6 +178,14 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleNavClick('/admin')}
+                      className="lg:hidden inline-flex items-center gap-1 px-2 py-0.5 bg-lacquer text-paper-100 text-[11px] font-serif-kr font-medium rounded-xs shadow-2xs"
+                    >
+                      관리자 페이지
+                    </button>
+                  )}
                   <button
                     onClick={() => handleNavClick('/mypage')}
                     className="hidden sm:inline-flex items-center gap-1.5 text-xs text-ink-700 font-serif-kr hover:text-ink-900"
@@ -385,14 +408,16 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
 
             {/* Bottom Admin Link & Brand tagline */}
             <div className="pt-6 border-t border-paper-300">
-              <button
-                onClick={() => handleNavClick('/admin')}
-                className="flex items-center justify-between w-full text-xs text-ink-500 hover:text-ink-900 py-1"
-              >
-                <span>관리자 시스템 (Admin)</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-              <p className="text-[10px] text-ink-400 mt-2 font-serif-kr">
+              {isLoggedIn && isAdmin && (
+                <button
+                  onClick={() => handleNavClick('/admin')}
+                  className="flex items-center justify-between w-full text-xs text-lacquer font-bold hover:text-ink-900 py-1.5 mb-2 border-b border-paper-300/60"
+                >
+                  <span>관리자 페이지 (Admin ERP)</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <p className="text-[10px] text-ink-400 mt-1 font-serif-kr">
                 TRADITION, REDEFINED. © JEONJU LEE
               </p>
             </div>

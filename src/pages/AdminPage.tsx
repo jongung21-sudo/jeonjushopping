@@ -44,7 +44,7 @@ interface AdminPageProps {
 }
 
 export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
-  const { orders, updateOrderStatus, allUsers, adminUpdateUserPoints, adminUpdateUserRole, refreshMembers, syncAllMembersToCloud, refreshOrders } = useAuth();
+  const { isLoggedIn, isAdmin, user, orders, updateOrderStatus, allUsers, adminUpdateUserPoints, adminUpdateUserRole, refreshMembers, syncAllMembersToCloud, refreshOrders } = useAuth();
   const { showToast } = useToast();
   const {
     products: productsList,
@@ -1309,6 +1309,46 @@ GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
     await refreshMembers();
     await syncMaterialsAndPOFromSupabase();
   };
+
+  // 관리자로 로그인하지 않은 경우 관리자 페이지 메뉴 및 화면 접근 차단
+  if (!isLoggedIn || !isAdmin) {
+    return (
+      <div className="min-h-screen bg-paper-100 flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-paper-50 border border-paper-300 p-8 text-center shadow-subtle space-y-5 font-serif-kr">
+          <div className="w-12 h-12 mx-auto bg-lacquer/10 border border-lacquer/30 text-lacquer flex items-center justify-center font-bold text-lg">
+            李
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-lg font-bold text-ink-900">
+              관리자 전용 페이지입니다
+            </h1>
+            <p className="text-xs text-ink-600 leading-relaxed">
+              관리자 계정(<strong>이종웅 대표 · admin@jeonjulee.kr</strong>)으로 로그인하셨을 때만 관리자 페이지 메뉴와 통합 ERP 콘솔을 이용하실 수 있습니다.
+            </p>
+            {isLoggedIn && user && (
+              <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 py-1.5 px-3">
+                현재 일반 회원({user.name} 님)으로 로그인되어 있습니다.
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 pt-2">
+            <button
+              onClick={() => navigate('/login')}
+              className="flex-1 py-2.5 bg-ink-900 text-paper-100 hover:bg-lacquer text-xs font-semibold transition-colors"
+            >
+              관리자 로그인하러 가기
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              className="flex-1 py-2.5 border border-paper-300 bg-white text-ink-700 hover:border-ink-900 text-xs transition-colors"
+            >
+              쇼핑몰 메인으로 이동
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-paper-50 text-ink-900 pb-20">
