@@ -21,9 +21,20 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
   const [signUpModalOpen, setSignUpModalOpen] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [dbModalOpen, setDbModalOpen] = useState(false);
+  const [dbConnected, setDbConnected] = useState<boolean>(() => isSupabaseConfigured());
   const { totalItemCount } = useCart();
   const { wishlistIds } = useWishlist();
   const { isLoggedIn, user, logout } = useAuth();
+
+  useEffect(() => {
+    const syncDbState = () => setDbConnected(isSupabaseConfigured());
+    window.addEventListener('supabase-connection-changed', syncDbState);
+    window.addEventListener('storage', syncDbState);
+    return () => {
+      window.removeEventListener('supabase-connection-changed', syncDbState);
+      window.removeEventListener('storage', syncDbState);
+    };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -116,14 +127,14 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, navigate, openSearc
               <button
                 onClick={() => setDbModalOpen(true)}
                 className={`flex items-center gap-1.5 px-2 py-1 text-[11px] font-sans border transition-colors cursor-pointer rounded-xs shadow-2xs ${
-                  isSupabaseConfigured()
+                  dbConnected || isSupabaseConfigured()
                     ? 'border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
                     : 'border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100'
                 }`}
-                title="Supabase 실시간 클라우드 DB 연동 관리 모달 열기"
+                title="Supabase 실시간 클라우드 DB 연동 관리 모달 열기 (수동 해제 전까지 연결 유지)"
               >
                 <Database className="w-3.5 h-3.5 text-bronze" />
-                <span className="font-medium">{isSupabaseConfigured() ? 'DB 연결됨' : '로컬 모드'}</span>
+                <span className="font-medium">{dbConnected || isSupabaseConfigured() ? 'DB 연결됨' : '로컬 모드'}</span>
               </button>
 
               {/* 회원가입 & 로그인 버튼 그룹 */}

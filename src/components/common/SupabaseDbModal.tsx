@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   getSupabaseUrl,
   getSupabaseAnonKey,
   isSupabaseConfigured,
   resetSupabaseClient,
+  disconnectSupabaseClient,
   testSupabaseConnection,
   extractSupabaseKey,
 } from '../../lib/supabaseClient';
@@ -38,6 +39,15 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
   const [syncing, setSyncing] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
 
+  useEffect(() => {
+    if (isOpen) {
+      const savedKey = getSupabaseAnonKey();
+      if (savedKey) {
+        setAnonKey(savedKey);
+      }
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const url = getSupabaseUrl();
@@ -55,11 +65,20 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
     }
     setAnonKey(extracted);
     resetSupabaseClient(extracted);
-    showToast('Supabase(cpzyrpaenvzfshqqpmrf) Key가 저장되었습니다.');
+    showToast('Supabase(cpzyrpaenvzfshqqpmrf) Key가 영구 저장되었습니다. (수동 해제 전까지 연결 유지)');
     await handleTestConnection();
     // 키 저장 시 기존 가입된 회원들의 이메일/비밀번호를 Supabase members 테이블에 자동 동기화
     await syncAllMembersToCloud();
     await refreshMembers();
+  };
+
+  const handleManualDisconnect = () => {
+    if (window.confirm('정말 Supabase DB 연결을 수동으로 해제하시겠습니까?')) {
+      disconnectSupabaseClient();
+      setAnonKey('');
+      setTestResult(null);
+      showToast('Supabase DB 연결이 수동으로 해제되었습니다.');
+    }
   };
 
   const handleTestConnection = async () => {
@@ -275,18 +294,31 @@ export const SupabaseDbModal: React.FC<SupabaseDbModalProps> = ({ isOpen, onClos
               </div>
             )}
 
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-[11px] text-ink-500">
-                키를 붙여넣고 [키 저장 및 적용]을 누르면 즉시 실시간 DB 모드로 활성화됩니다.
+            <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
+              <span className="text-[11px] text-ink-600 font-medium">
+                {configured
+                  ? '🔒 현재 연결됨 — 사용자가 직접 [수동 연결 해제]를 누르기 전까지 연결이 영구 유지됩니다.'
+                  : '키를 붙여넣고 [키 저장 및 적용]을 누르면 즉시 실시간 DB 모드로 영구 활성화됩니다.'}
               </span>
-              <button
-                type="button"
-                onClick={handleSaveKey}
-                disabled={anonKey.trim().startsWith('http')}
-                className="px-4 py-1.5 bg-ink-900 hover:bg-lacquer disabled:bg-ink-400 text-paper-100 text-xs font-serif-kr rounded-sm transition-colors shadow-sm cursor-pointer disabled:cursor-not-allowed"
-              >
-                키 저장 및 적용
-              </button>
+              <div className="flex items-center gap-2">
+                {configured && (
+                  <button
+                    type="button"
+                    onClick={handleManualDisconnect}
+                    className="px-3 py-1.5 bg-paper-200 hover:bg-red-50 text-ink-700 hover:text-red-700 border border-paper-300 hover:border-red-300 text-xs font-serif-kr rounded-sm transition-colors cursor-pointer"
+                  >
+                    수동 연결 해제
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSaveKey}
+                  disabled={anonKey.trim().startsWith('http')}
+                  className="px-4 py-1.5 bg-ink-900 hover:bg-lacquer disabled:bg-ink-400 text-paper-100 text-xs font-serif-kr rounded-sm transition-colors shadow-sm cursor-pointer disabled:cursor-not-allowed"
+                >
+                  키 저장 및 적용
+                </button>
+              </div>
             </div>
           </div>
         </div>
