@@ -1,5 +1,5 @@
 import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabaseClient';
-import { User, Product, Order, ProductReview, BoardPost, MaterialItem, PurchaseOrder, TaxInvoice, PointTransaction } from '../types';
+import { User, Product, Order, ProductReview, BoardPost, MaterialItem, PurchaseOrder, TaxInvoice, PointTransaction, CartItem } from '../types';
 import { INITIAL_MATERIALS, INITIAL_PURCHASE_ORDERS, INITIAL_TAX_INVOICES, INITIAL_POSTS } from '../data/communityData';
 import { PRODUCTS } from '../data/products';
 
@@ -1781,14 +1781,64 @@ export const dbService = {
         poCount: INITIAL_PURCHASE_ORDERS.length,
       });
 
-      // 7. 첨부 이미지 및 상품 이미지를 Supabase Storage 'products' 버킷에 일괄 저장
+      // 7. 찜한상품(wishlist_items) 및 장바구니(cart_items) 초기/로컬 데이터 동기화
+      let savedWishlistIds: string[] = ['jl-out-01', 'jl-top-01'];
+      try {
+        const rawWish = localStorage.getItem('jeonju_lee_wishlist_v1');
+        if (rawWish) {
+          const parsed = JSON.parse(rawWish);
+          if (Array.isArray(parsed) && parsed.length > 0) savedWishlistIds = parsed;
+        }
+      } catch {}
+      const wishProducts = PRODUCTS.filter((p) => savedWishlistIds.includes(p.id));
+      await this.syncWishlistToSupabase({
+        userId: 'usr-customer-01',
+        userEmail: 'customer@jeonjulee.kr',
+        userName: '김서연',
+        products: wishProducts,
+      });
+
+      let savedCartItems: CartItem[] = [];
+      try {
+        const rawCart = localStorage.getItem('jeonju_lee_cart_v1');
+        if (rawCart) {
+          const parsed = JSON.parse(rawCart);
+          if (Array.isArray(parsed) && parsed.length > 0) savedCartItems = parsed;
+        }
+      } catch {}
+      if (savedCartItems.length === 0 && PRODUCTS.length > 0) {
+        const firstProd = PRODUCTS[0];
+        const firstColor = firstProd.colors[0] || { name: '먹색 (Ink Black)', code: '#181818' };
+        const firstSize = firstProd.sizes[0] || 'L (100-105)';
+        savedCartItems = [
+          {
+            id: `usr-customer-01_${firstProd.id}_${firstColor.name}_${firstSize}`,
+            productId: firstProd.id,
+            product: firstProd,
+            selectedColor: firstColor,
+            selectedSize: firstSize,
+            quantity: 1,
+            selected: true,
+          },
+        ];
+      }
+      await this.syncCartToSupabase({
+        userId: 'usr-customer-01',
+        userEmail: 'customer@jeonjulee.kr',
+        userName: '김서연',
+        items: savedCartItems,
+      });
+
+      // 8. 첨부 이미지 및 상품 이미지를 Supabase Storage 'products' 버킷에 일괄 저장
       const imgRes = await this.syncAttachedImagesToStorage(PRODUCTS);
 
       return {
         success: true,
-        message: `Supabase 동기화 완료! (대시보드 주문 ${savedOrders.length}건, 상품 ${productCount}개, 원부자재 ${materialCount}건, 발주서 ${poCount}건, Storage 이미지 ${imgRes.uploadedCount}장 저장)`,
+        message: `Supabase 동기화 완료! (대시보드 주문 ${savedOrders.length}건, 찜 ${wishProducts.length}건, 장바구니 ${savedCartItems.length}건, 상품 ${productCount}개, 원부자재 ${materialCount}건, 발주서 ${poCount}건 저장)`,
         counts: {
           orders: savedOrders.length,
+          wishlist: wishProducts.length,
+          cart: savedCartItems.length,
           products: productCount,
           materials: materialCount,
           purchaseOrders: poCount,
@@ -1800,6 +1850,348 @@ export const dbService = {
         success: false,
         message: `데이터 주입 실패: ${err?.message || '네트워크 오류'}`,
       };
+    }
+  },
+
+  // ==========================================
+  // [WISHLIST ITEMS (찜한상품 관리 - public.wishlist_items)] CRUD
+  // ==========================================
+
+  async fetchWishlistItems(userId: string): Promise<string[] | null> {
+    if (!isSupabaseConfigured()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from('wishlist_items')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error || !data) return null;
+      return data.map((row: any) => String(row.product_id));
+    } catch (e) {
+      console.warn('Supabase fetchWishlistItems failed:', e);
+      return null;
+    }
+  },
+
+  async fetchAllWishlistRows(): Promise<any[]> {
+    if (!isSupabaseConfigured()) return [];
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from('wishlist_items')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error || !data) return [];
+      return data;
+    } catch {
+      return [];
+    }
+  },
+
+  async saveWishlistItem(params: {
+    userId: string;
+    userEmail: string;
+    userName: string;
+    product: Product;
+  }): Promise<boolean> {
+    if (!isSupabaseConfigured()) return false;
+    try {
+      const client = getSupabaseClient();
+      const rowId = `${params.userId}_${params.product.id}`;
+      const payload = {
+        id: rowId,
+        user_id: params.userId,
+        user_email: params.userEmail || '',
+        user_name: params.userName || '비회원',
+        product_id: params.product.id,
+        product_name: params.product.name,
+        category: params.product.category || '',
+        price: Number(params.product.price ?? 0),
+        thumbnail: params.product.images?.[0] || params.product.thumbnail || '',
+        created_at: new Date().toISOString(),
+      };
+      const { error } = await client.from('wishlist_items').upsert(payload, { onConflict: 'id' });
+      return !error;
+    } catch (e) {
+      console.warn('Supabase saveWishlistItem failed:', e);
+      return false;
+    }
+  },
+
+  async deleteWishlistItem(userId: string, productId: string): Promise<boolean> {
+    if (!isSupabaseConfigured()) return false;
+    try {
+      const client = getSupabaseClient();
+      const rowId = `${userId}_${productId}`;
+      await client.from('wishlist_items').delete().eq('id', rowId);
+      const { error } = await client
+        .from('wishlist_items')
+        .delete()
+        .eq('user_id', userId)
+        .eq('product_id', productId);
+      return !error;
+    } catch (e) {
+      console.warn('Supabase deleteWishlistItem failed:', e);
+      return false;
+    }
+  },
+
+  async clearWishlistItems(userId: string): Promise<boolean> {
+    if (!isSupabaseConfigured()) return false;
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.from('wishlist_items').delete().eq('user_id', userId);
+      return !error;
+    } catch (e) {
+      console.warn('Supabase clearWishlistItems failed:', e);
+      return false;
+    }
+  },
+
+  async syncWishlistToSupabase(params: {
+    userId: string;
+    userEmail: string;
+    userName: string;
+    products: Product[];
+  }): Promise<{ success: boolean; count: number; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, count: 0, message: 'Supabase가 설정되지 않았습니다.' };
+    }
+    try {
+      const client = getSupabaseClient();
+      // 기존 해당 유저 찜 목록 정리 후 현재 목록 업서트
+      await client.from('wishlist_items').delete().eq('user_id', params.userId);
+
+      if (params.products.length === 0) {
+        return {
+          success: true,
+          count: 0,
+          message: '찜한 상품 비우기 상태가 Supabase wishlist_items 테이블에 반영되었습니다.',
+        };
+      }
+
+      const payload = params.products.map((product) => ({
+        id: `${params.userId}_${product.id}`,
+        user_id: params.userId,
+        user_email: params.userEmail || '',
+        user_name: params.userName || '비회원',
+        product_id: product.id,
+        product_name: product.name,
+        category: product.category || '',
+        price: Number(product.price ?? 0),
+        thumbnail: product.images?.[0] || product.thumbnail || '',
+        created_at: new Date().toISOString(),
+      }));
+
+      const { error } = await client.from('wishlist_items').upsert(payload, { onConflict: 'id' });
+      if (error) {
+        return {
+          success: false,
+          count: 0,
+          message: `wishlist_items 저장 실패: ${error.message} (SQL 실행 필요)`,
+        };
+      }
+      return {
+        success: true,
+        count: payload.length,
+        message: `찜한 상품 ${payload.length}건이 Supabase(cpzyrpaenvzfshqqpmrf) wishlist_items 테이블에 저장되었습니다!`,
+      };
+    } catch (e: any) {
+      return { success: false, count: 0, message: `동기화 오류: ${e?.message || '통신 오류'}` };
+    }
+  },
+
+  // ==========================================
+  // [CART ITEMS (장바구니 관리 - public.cart_items)] CRUD
+  // ==========================================
+
+  async fetchCartItems(userId: string, allProducts: Product[]): Promise<CartItem[] | null> {
+    if (!isSupabaseConfigured()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from('cart_items')
+        .select('*')
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false });
+
+      if (error || !data) return null;
+
+      return data.map((row: any): CartItem => {
+        const foundProduct: Product =
+          allProducts.find((p) => p.id === row.product_id) ||
+          PRODUCTS.find((p) => p.id === row.product_id) ||
+          PRODUCTS[0];
+
+        const colorName = row.selected_color || foundProduct.colors?.[0]?.name || '기본';
+        const colorCode =
+          row.color_hex ||
+          foundProduct.colors?.find((c) => c.name === colorName)?.code ||
+          '#181818';
+
+        return {
+          id: row.id,
+          productId: foundProduct.id,
+          product: foundProduct,
+          selectedColor: { name: colorName, code: colorCode },
+          selectedSize: row.selected_size || foundProduct.sizes?.[0] || 'FREE',
+          quantity: Math.max(1, Number(row.quantity ?? 1)),
+          selected: row.selected !== false,
+        };
+      });
+    } catch (e) {
+      console.warn('Supabase fetchCartItems failed:', e);
+      return null;
+    }
+  },
+
+  async fetchAllCartRows(): Promise<any[]> {
+    if (!isSupabaseConfigured()) return [];
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from('cart_items')
+        .select('*')
+        .order('updated_at', { ascending: false });
+      if (error || !data) return [];
+      return data;
+    } catch {
+      return [];
+    }
+  },
+
+  async saveCartItem(params: {
+    userId: string;
+    userEmail: string;
+    userName: string;
+    item: CartItem;
+  }): Promise<boolean> {
+    if (!isSupabaseConfigured()) return false;
+    try {
+      const client = getSupabaseClient();
+      const unitPrice = Number(params.item.product?.price ?? 0);
+      const qty = Math.max(1, Number(params.item.quantity ?? 1));
+      const payload = {
+        id: params.item.id,
+        user_id: params.userId,
+        user_email: params.userEmail || '',
+        user_name: params.userName || '비회원',
+        product_id: params.item.productId,
+        product_name: params.item.product?.name || '상품',
+        selected_color: params.item.selectedColor?.name || '기본',
+        color_hex: params.item.selectedColor?.code || '#181818',
+        selected_size: params.item.selectedSize || 'FREE',
+        quantity: qty,
+        unit_price: unitPrice,
+        total_price: unitPrice * qty,
+        selected: params.item.selected !== false,
+        thumbnail: params.item.product?.images?.[0] || params.item.product?.thumbnail || '',
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await client.from('cart_items').upsert(payload, { onConflict: 'id' });
+      return !error;
+    } catch (e) {
+      console.warn('Supabase saveCartItem failed:', e);
+      return false;
+    }
+  },
+
+  async deleteCartItem(id: string): Promise<boolean> {
+    if (!isSupabaseConfigured()) return false;
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.from('cart_items').delete().eq('id', id);
+      return !error;
+    } catch (e) {
+      console.warn('Supabase deleteCartItem failed:', e);
+      return false;
+    }
+  },
+
+  async deleteCartItems(ids: string[]): Promise<boolean> {
+    if (!isSupabaseConfigured() || ids.length === 0) return false;
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.from('cart_items').delete().in('id', ids);
+      return !error;
+    } catch (e) {
+      console.warn('Supabase deleteCartItems failed:', e);
+      return false;
+    }
+  },
+
+  async clearCartItems(userId: string): Promise<boolean> {
+    if (!isSupabaseConfigured()) return false;
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.from('cart_items').delete().eq('user_id', userId);
+      return !error;
+    } catch (e) {
+      console.warn('Supabase clearCartItems failed:', e);
+      return false;
+    }
+  },
+
+  async syncCartToSupabase(params: {
+    userId: string;
+    userEmail: string;
+    userName: string;
+    items: CartItem[];
+  }): Promise<{ success: boolean; count: number; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: false, count: 0, message: 'Supabase가 설정되지 않았습니다.' };
+    }
+    try {
+      const client = getSupabaseClient();
+      await client.from('cart_items').delete().eq('user_id', params.userId);
+
+      if (params.items.length === 0) {
+        return {
+          success: true,
+          count: 0,
+          message: '장바구니 비우기 상태가 Supabase cart_items 테이블에 반영되었습니다.',
+        };
+      }
+
+      const payload = params.items.map((item) => {
+        const unitPrice = Number(item.product?.price ?? 0);
+        const qty = Math.max(1, Number(item.quantity ?? 1));
+        return {
+          id: item.id,
+          user_id: params.userId,
+          user_email: params.userEmail || '',
+          user_name: params.userName || '비회원',
+          product_id: item.productId,
+          product_name: item.product?.name || '상품',
+          selected_color: item.selectedColor?.name || '기본',
+          color_hex: item.selectedColor?.code || '#181818',
+          selected_size: item.selectedSize || 'FREE',
+          quantity: qty,
+          unit_price: unitPrice,
+          total_price: unitPrice * qty,
+          selected: item.selected !== false,
+          thumbnail: item.product?.images?.[0] || item.product?.thumbnail || '',
+          updated_at: new Date().toISOString(),
+        };
+      });
+
+      const { error } = await client.from('cart_items').upsert(payload, { onConflict: 'id' });
+      if (error) {
+        return {
+          success: false,
+          count: 0,
+          message: `cart_items 저장 실패: ${error.message} (SQL 실행 필요)`,
+        };
+      }
+      return {
+        success: true,
+        count: payload.length,
+        message: `장바구니 품목 ${payload.length}건이 Supabase(cpzyrpaenvzfshqqpmrf) cart_items 테이블에 저장되었습니다!`,
+      };
+    } catch (e: any) {
+      return { success: false, count: 0, message: `장바구니 동기화 오류: ${e?.message || '통신 실패'}` };
     }
   },
 };

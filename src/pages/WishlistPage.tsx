@@ -1,8 +1,10 @@
 import React from 'react';
 import { useWishlist } from '../context/WishlistContext';
 import { useCart } from '../context/CartContext';
+import { useToast } from '../context/ToastContext';
 import { Product } from '../types';
-import { Heart, ShoppingBag, Trash2, ArrowRight } from 'lucide-react';
+import { Heart, ShoppingBag, Trash2, Database, RefreshCw } from 'lucide-react';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface WishlistPageProps {
   navigate: (path: string) => void;
@@ -13,10 +15,10 @@ interface WishlistPageProps {
 export const WishlistPage: React.FC<WishlistPageProps> = ({
   navigate,
   onSelectProduct,
-  onQuickView,
 }) => {
-  const { wishlistProducts, removeFromWishlist, clearWishlist } = useWishlist();
+  const { wishlistProducts, removeFromWishlist, clearWishlist, syncWishlistToDb, isSyncingWishlist } = useWishlist();
   const { addToCart } = useCart();
+  const { showToast } = useToast();
 
   const handleAddToCart = (product: Product) => {
     if (product.colors[0] && product.sizes[0]) {
@@ -26,25 +28,54 @@ export const WishlistPage: React.FC<WishlistPageProps> = ({
     }
   };
 
+  const handleManualSync = async () => {
+    const res = await syncWishlistToDb();
+    if (res.success) {
+      showToast(res.message, 'success');
+    } else {
+      showToast(res.message, 'error');
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 animate-fade-in">
-      <div className="flex items-center justify-between pb-6 border-b border-paper-300">
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-paper-300">
         <div>
           <span className="text-[11px] font-sans tracking-[0.25em] text-lacquer uppercase">
-            ARCHIVE
+            ARCHIVE · SUPABASE DB
           </span>
           <h1 className="text-2xl sm:text-3xl font-serif-kr font-medium text-ink-900 mt-1">
             관심 상품 (WISHLIST)
           </h1>
+          <p className="text-xs text-ink-500 mt-1 flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5 text-emerald-600" />
+            <span>
+              {isSupabaseConfigured()
+                ? 'Supabase 클라우드 DB (wishlist_items 테이블) 실시간 연동 중'
+                : '로컬 세이프 모드 동작 중'}
+            </span>
+          </p>
         </div>
-        {wishlistProducts.length > 0 && (
-          <button
-            onClick={clearWishlist}
-            className="text-xs text-ink-500 hover:text-lacquer underline"
-          >
-            전체 비우기
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {isSupabaseConfigured() && (
+            <button
+              onClick={handleManualSync}
+              disabled={isSyncingWishlist}
+              className="px-3.5 py-2 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-xs font-medium text-ink-800 rounded-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingWishlist ? 'animate-spin' : ''}`} />
+              <span>{isSyncingWishlist ? 'DB 저장 중...' : '찜 목록 DB 즉시 저장'}</span>
+            </button>
+          )}
+          {wishlistProducts.length > 0 && (
+            <button
+              onClick={clearWishlist}
+              className="text-xs text-ink-500 hover:text-lacquer underline"
+            >
+              전체 비우기
+            </button>
+          )}
+        </div>
       </div>
 
       {wishlistProducts.length === 0 ? (

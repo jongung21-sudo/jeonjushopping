@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
-import { Trash2, Heart, ArrowRight, Truck, Tag, ShoppingBag, ArrowLeft } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
+import { Trash2, Heart, ArrowRight, Truck, Tag, ShoppingBag, ArrowLeft, Database, RefreshCw } from 'lucide-react';
 import { Product } from '../types';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface CartPageProps {
   navigate: (path: string) => void;
@@ -17,6 +19,8 @@ export const CartPage: React.FC<CartPageProps> = ({ navigate, onSelectProduct })
     removeSelected,
     toggleSelect,
     selectAll,
+    syncCartToDb,
+    isSyncingCart,
     appliedCoupon,
     applyCoupon,
     removeCoupon,
@@ -30,7 +34,17 @@ export const CartPage: React.FC<CartPageProps> = ({ navigate, onSelectProduct })
   } = useCart();
 
   const { toggleWishlist } = useWishlist();
+  const { showToast } = useToast();
   const [couponCodeInput, setCouponCodeInput] = useState('');
+
+  const handleManualSyncCart = async () => {
+    const res = await syncCartToDb();
+    if (res.success) {
+      showToast(res.message, 'success');
+    } else {
+      showToast(res.message, 'error');
+    }
+  };
 
   const allSelected = items.length > 0 && items.every((i) => i.selected !== false);
   const selectedCount = items.filter((i) => i.selected !== false).length;
@@ -74,17 +88,39 @@ export const CartPage: React.FC<CartPageProps> = ({ navigate, onSelectProduct })
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 animate-fade-in">
       {/* Title & Free Shipping Progress Bar */}
       <div className="pb-6 border-b border-paper-300">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl sm:text-3xl font-serif-kr font-medium text-ink-900">
-            장바구니 (SHOPPING BAG)
-          </h1>
-          <button
-            onClick={() => navigate('/shop')}
-            className="text-xs text-ink-500 hover:text-ink-900 flex items-center gap-1"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>쇼핑 계속하기</span>
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-serif-kr font-medium text-ink-900">
+              장바구니 (SHOPPING BAG)
+            </h1>
+            <p className="text-xs text-ink-500 mt-1 flex items-center gap-1.5">
+              <Database className="w-3.5 h-3.5 text-emerald-600" />
+              <span>
+                {isSupabaseConfigured()
+                  ? 'Supabase 클라우드 DB (cart_items 테이블) 실시간 연동 중'
+                  : '로컬 세이프 모드 동작 중'}
+              </span>
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {isSupabaseConfigured() && (
+              <button
+                onClick={handleManualSyncCart}
+                disabled={isSyncingCart}
+                className="px-3.5 py-2 bg-paper-200 hover:bg-paper-300 border border-paper-300 text-xs font-medium text-ink-800 rounded-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCart ? 'animate-spin' : ''}`} />
+                <span>{isSyncingCart ? 'DB 저장 중...' : '장바구니 DB 즉시 저장'}</span>
+              </button>
+            )}
+            <button
+              onClick={() => navigate('/shop')}
+              className="text-xs text-ink-500 hover:text-ink-900 flex items-center gap-1"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>쇼핑 계속하기</span>
+            </button>
+          </div>
         </div>
 
         {/* Free shipping banner */}

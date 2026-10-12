@@ -673,176 +673,148 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
                 </button>
                 <button
                   onClick={() => {
-                    const sql = `-- 전주이씨 (JEONJU LEE) 대시보드 요약(dashboard_summary) & 실시간 주문내역(dashboard_orders, orders) & 원부자재 통합 SQL
-CREATE TABLE IF NOT EXISTS public.dashboard_summary (
-    id TEXT PRIMARY KEY DEFAULT 'main',
-    brand_name TEXT NOT NULL DEFAULT '전주이씨 (JEONJU LEE)',
-    ceo_name TEXT NOT NULL DEFAULT '이종웅 대표',
-    total_revenue INTEGER NOT NULL DEFAULT 0,
-    total_order_count INTEGER NOT NULL DEFAULT 0,
-    pending_shipping_count INTEGER NOT NULL DEFAULT 0,
-    refund_request_count INTEGER NOT NULL DEFAULT 0,
-    registered_member_count INTEGER NOT NULL DEFAULT 0,
-    low_stock_material_count INTEGER NOT NULL DEFAULT 0,
-    total_product_count INTEGER NOT NULL DEFAULT 0,
-    total_po_count INTEGER NOT NULL DEFAULT 0,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    const sql = `CREATE TABLE IF NOT EXISTS public.dashboard_summary (
+  id TEXT PRIMARY KEY DEFAULT 'main',
+  brand_name TEXT DEFAULT '전주이씨 (JEONJU LEE)',
+  ceo_name TEXT DEFAULT '이종웅 대표',
+  total_revenue INTEGER DEFAULT 0,
+  total_order_count INTEGER DEFAULT 0,
+  pending_shipping_count INTEGER DEFAULT 0,
+  refund_request_count INTEGER DEFAULT 0,
+  registered_member_count INTEGER DEFAULT 0,
+  low_stock_material_count INTEGER DEFAULT 0,
+  total_product_count INTEGER DEFAULT 0,
+  total_po_count INTEGER DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-COMMENT ON TABLE public.dashboard_summary IS '📊 [대시보드 요약] 누적 매출, 배송/환불 대기, 등록 회원 수, 부족 자재 현황';
 ALTER TABLE public.dashboard_summary ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "dashboard_summary_select_policy" ON public.dashboard_summary;
-CREATE POLICY "dashboard_summary_select_policy" ON public.dashboard_summary FOR SELECT TO anon, authenticated USING (true);
-DROP POLICY IF EXISTS "dashboard_summary_insert_policy" ON public.dashboard_summary;
-CREATE POLICY "dashboard_summary_insert_policy" ON public.dashboard_summary FOR INSERT TO anon, authenticated WITH CHECK (true);
-DROP POLICY IF EXISTS "dashboard_summary_update_policy" ON public.dashboard_summary;
-CREATE POLICY "dashboard_summary_update_policy" ON public.dashboard_summary FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "dashboard_summary_delete_policy" ON public.dashboard_summary;
-CREATE POLICY "dashboard_summary_delete_policy" ON public.dashboard_summary FOR DELETE TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "allow_all_dashboard_summary" ON public.dashboard_summary;
+CREATE POLICY "allow_all_dashboard_summary" ON public.dashboard_summary FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 GRANT ALL ON public.dashboard_summary TO anon, authenticated, service_role;
 
 CREATE TABLE IF NOT EXISTS public.dashboard_orders (
-    id TEXT PRIMARY KEY,
-    order_number TEXT UNIQUE NOT NULL,
-    order_date TEXT NOT NULL,
-    customer_name TEXT NOT NULL,
-    product_name TEXT NOT NULL,
-    final_price INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT '결제완료',
-    payment_method TEXT DEFAULT '신용/체크카드',
-    tracking_carrier TEXT DEFAULT '',
-    tracking_number TEXT DEFAULT '',
-    recipient_phone TEXT DEFAULT '',
-    address TEXT DEFAULT '',
-    items JSONB NOT NULL DEFAULT '[]'::jsonb,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id TEXT PRIMARY KEY,
+  order_number TEXT UNIQUE NOT NULL,
+  order_date TEXT NOT NULL,
+  customer_name TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  final_price INTEGER DEFAULT 0,
+  status TEXT DEFAULT '결제완료',
+  payment_method TEXT DEFAULT '신용/체크카드',
+  tracking_carrier TEXT DEFAULT '',
+  tracking_number TEXT DEFAULT '',
+  recipient_phone TEXT DEFAULT '',
+  address TEXT DEFAULT '',
+  items JSONB DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-COMMENT ON TABLE public.dashboard_orders IS '📦 [대시보드 실시간 주문내역] 주문번호, 주문일시, 주문자, 품목명, 실결제액, 배송상태';
 ALTER TABLE public.dashboard_orders ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "dashboard_orders_select_policy" ON public.dashboard_orders;
-CREATE POLICY "dashboard_orders_select_policy" ON public.dashboard_orders FOR SELECT TO anon, authenticated USING (true);
-DROP POLICY IF EXISTS "dashboard_orders_insert_policy" ON public.dashboard_orders;
-CREATE POLICY "dashboard_orders_insert_policy" ON public.dashboard_orders FOR INSERT TO anon, authenticated WITH CHECK (true);
-DROP POLICY IF EXISTS "dashboard_orders_update_policy" ON public.dashboard_orders;
-CREATE POLICY "dashboard_orders_update_policy" ON public.dashboard_orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "dashboard_orders_delete_policy" ON public.dashboard_orders;
-CREATE POLICY "dashboard_orders_delete_policy" ON public.dashboard_orders FOR DELETE TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "allow_all_dashboard_orders" ON public.dashboard_orders;
+CREATE POLICY "allow_all_dashboard_orders" ON public.dashboard_orders FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 GRANT ALL ON public.dashboard_orders TO anon, authenticated, service_role;
 
 CREATE TABLE IF NOT EXISTS public.orders (
-    id TEXT PRIMARY KEY,
-    order_number TEXT UNIQUE NOT NULL,
-    customer_name TEXT DEFAULT '고객',
-    product_summary TEXT DEFAULT '',
-    user_id TEXT,
-    order_date TEXT NOT NULL,
-    items JSONB NOT NULL DEFAULT '[]'::jsonb,
-    total_product_price INTEGER NOT NULL DEFAULT 0,
-    discount_price INTEGER DEFAULT 0,
-    used_points INTEGER DEFAULT 0,
-    coupon_discount INTEGER DEFAULT 0,
-    coupon_code TEXT,
-    shipping_fee INTEGER DEFAULT 0,
-    final_price INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT '결제완료',
-    recipient_name TEXT NOT NULL,
-    recipient_phone TEXT NOT NULL,
-    postal_code TEXT NOT NULL DEFAULT '',
-    address TEXT NOT NULL DEFAULT '',
-    detail_address TEXT DEFAULT '',
-    delivery_memo TEXT DEFAULT '',
-    payment_method TEXT NOT NULL DEFAULT '신용/체크카드',
-    tracking_carrier TEXT,
-    tracking_number TEXT,
-    cancel_reason TEXT,
-    refund_status TEXT DEFAULT 'none',
-    refund_reason TEXT,
-    refund_account JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+  id TEXT PRIMARY KEY,
+  order_number TEXT UNIQUE NOT NULL,
+  customer_name TEXT DEFAULT '고객',
+  product_summary TEXT DEFAULT '',
+  user_id TEXT,
+  order_date TEXT NOT NULL,
+  items JSONB DEFAULT '[]'::jsonb,
+  total_product_price INTEGER DEFAULT 0,
+  discount_price INTEGER DEFAULT 0,
+  used_points INTEGER DEFAULT 0,
+  coupon_discount INTEGER DEFAULT 0,
+  coupon_code TEXT,
+  shipping_fee INTEGER DEFAULT 0,
+  final_price INTEGER DEFAULT 0,
+  status TEXT DEFAULT '결제완료',
+  recipient_name TEXT NOT NULL,
+  recipient_phone TEXT NOT NULL,
+  postal_code TEXT DEFAULT '',
+  address TEXT DEFAULT '',
+  detail_address TEXT DEFAULT '',
+  delivery_memo TEXT DEFAULT '',
+  payment_method TEXT DEFAULT '신용/체크카드',
+  tracking_carrier TEXT,
+  tracking_number TEXT,
+  cancel_reason TEXT,
+  refund_status TEXT DEFAULT 'none',
+  refund_reason TEXT,
+  refund_account JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
-ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS customer_name TEXT DEFAULT '고객';
-ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS product_summary TEXT DEFAULT '';
-ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_status TEXT DEFAULT 'none';
-ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_account JSONB;
-COMMENT ON TABLE public.orders IS '🛒 [주문/배송/환불 관리] 전체 주문 상세 내역 및 송장/환불 정보';
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "orders_select_policy" ON public.orders;
-CREATE POLICY "orders_select_policy" ON public.orders FOR SELECT TO anon, authenticated USING (true);
-DROP POLICY IF EXISTS "orders_insert_policy" ON public.orders;
-CREATE POLICY "orders_insert_policy" ON public.orders FOR INSERT TO anon, authenticated WITH CHECK (true);
-DROP POLICY IF EXISTS "orders_update_policy" ON public.orders;
-CREATE POLICY "orders_update_policy" ON public.orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "orders_delete_policy" ON public.orders;
-CREATE POLICY "orders_delete_policy" ON public.orders FOR DELETE TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "allow_all_orders" ON public.orders;
+CREATE POLICY "allow_all_orders" ON public.orders FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 GRANT ALL ON public.orders TO anon, authenticated, service_role;
 
-CREATE TABLE IF NOT EXISTS public.materials (
-    id TEXT PRIMARY KEY,
-    code TEXT NOT NULL,
-    name TEXT NOT NULL,
-    category TEXT NOT NULL,
-    unit TEXT NOT NULL,
-    current_stock INTEGER NOT NULL DEFAULT 0,
-    safe_stock INTEGER NOT NULL DEFAULT 20,
-    unit_cost INTEGER NOT NULL DEFAULT 0,
-    supplier TEXT NOT NULL,
-    updated_at DATE NOT NULL DEFAULT CURRENT_DATE
+CREATE TABLE IF NOT EXISTS public.wishlist_items (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'guest',
+  user_email TEXT DEFAULT '',
+  user_name TEXT DEFAULT '비회원',
+  product_id TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  category TEXT DEFAULT '',
+  price INTEGER DEFAULT 0,
+  thumbnail TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
-COMMENT ON TABLE public.materials IS '🧵 [원부자재 재고] 원단, 안감, 부자재, 패키지 현재고 및 안전재고';
-ALTER TABLE public.materials ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "materials_select_policy" ON public.materials;
-CREATE POLICY "materials_select_policy" ON public.materials FOR SELECT TO anon, authenticated USING (true);
-DROP POLICY IF EXISTS "materials_insert_policy" ON public.materials;
-CREATE POLICY "materials_insert_policy" ON public.materials FOR INSERT TO anon, authenticated WITH CHECK (true);
-DROP POLICY IF EXISTS "materials_update_policy" ON public.materials;
-CREATE POLICY "materials_update_policy" ON public.materials FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "materials_delete_policy" ON public.materials;
-CREATE POLICY "materials_delete_policy" ON public.materials FOR DELETE TO anon, authenticated USING (true);
-GRANT ALL ON public.materials TO anon, authenticated, service_role;
+ALTER TABLE public.wishlist_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "allow_all_wishlist_items" ON public.wishlist_items;
+CREATE POLICY "allow_all_wishlist_items" ON public.wishlist_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+GRANT ALL ON public.wishlist_items TO anon, authenticated, service_role;
 
-CREATE TABLE IF NOT EXISTS public.purchase_orders (
-    id TEXT PRIMARY KEY,
-    po_number TEXT UNIQUE NOT NULL,
-    item_type TEXT NOT NULL DEFAULT '원부자재',
-    item_name TEXT NOT NULL,
-    supplier TEXT NOT NULL DEFAULT '국내 공방',
-    quantity INTEGER NOT NULL DEFAULT 1,
-    unit_cost INTEGER NOT NULL DEFAULT 0,
-    total_cost INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT '발주승인',
-    expected_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    created_at DATE NOT NULL DEFAULT CURRENT_DATE
+CREATE TABLE IF NOT EXISTS public.cart_items (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'guest',
+  user_email TEXT DEFAULT '',
+  user_name TEXT DEFAULT '비회원',
+  product_id TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  selected_color TEXT DEFAULT '기본',
+  color_hex TEXT DEFAULT '#181818',
+  selected_size TEXT DEFAULT 'FREE',
+  quantity INTEGER DEFAULT 1,
+  unit_price INTEGER DEFAULT 0,
+  total_price INTEGER DEFAULT 0,
+  selected BOOLEAN DEFAULT true,
+  thumbnail TEXT DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-COMMENT ON TABLE public.purchase_orders IS '📋 [원부자재 발주관리] 거래처 발주서, 입고예정일 및 입고상태';
-ALTER TABLE public.purchase_orders ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "po_select_policy" ON public.purchase_orders;
-CREATE POLICY "po_select_policy" ON public.purchase_orders FOR SELECT TO anon, authenticated USING (true);
-DROP POLICY IF EXISTS "po_insert_policy" ON public.purchase_orders;
-CREATE POLICY "po_insert_policy" ON public.purchase_orders FOR INSERT TO anon, authenticated WITH CHECK (true);
-DROP POLICY IF EXISTS "po_update_policy" ON public.purchase_orders;
-CREATE POLICY "po_update_policy" ON public.purchase_orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "po_delete_policy" ON public.purchase_orders;
-CREATE POLICY "po_delete_policy" ON public.purchase_orders FOR DELETE TO anon, authenticated USING (true);
-GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;
+ALTER TABLE public.cart_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "allow_all_cart_items" ON public.cart_items;
+CREATE POLICY "allow_all_cart_items" ON public.cart_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+GRANT ALL ON public.cart_items TO anon, authenticated, service_role;
 
-INSERT INTO public.dashboard_summary (
-    id, brand_name, ceo_name, total_revenue, total_order_count,
-    pending_shipping_count, refund_request_count, registered_member_count,
-    low_stock_material_count, total_product_count, total_po_count, updated_at
-) VALUES (
-    'main', '전주이씨 (JEONJU LEE)', '이종웅 대표',
-    484200, 2, 0, 0, 3, 2, 20, 3, NOW()
-) ON CONFLICT (id) DO UPDATE SET
-    ceo_name = EXCLUDED.ceo_name,
-    total_revenue = EXCLUDED.total_revenue,
-    total_order_count = EXCLUDED.total_order_count,
-    updated_at = NOW();`;
+INSERT INTO public.dashboard_summary (id, brand_name, ceo_name, total_revenue, total_order_count, pending_shipping_count, refund_request_count, registered_member_count, low_stock_material_count, total_product_count, total_po_count)
+VALUES ('main', '전주이씨 (JEONJU LEE)', '이종웅 대표', 484200, 2, 0, 0, 3, 2, 20, 3)
+ON CONFLICT (id) DO UPDATE SET total_revenue = EXCLUDED.total_revenue, updated_at = NOW();
+
+INSERT INTO public.dashboard_orders (id, order_number, order_date, customer_name, product_name, final_price, status, payment_method, tracking_carrier, tracking_number, recipient_phone, address)
+VALUES
+  ('ord-20260305-01', 'ORD-20260305-8821', '2026-03-05 14:20', '김서연', '울 캐시미어 릴렉스드 도포 코트', 416200, '배송중', '신용/체크카드', 'CJ대한통운', '6482-9103-4412', '010-9876-5432', '서울 강남구 압구정로 10'),
+  ('ord-20260228-02', 'ORD-20260228-3312', '2026-02-28 19:05', '김서연', '전통 매듭 노리개 키링 & 가죽 참', 68000, '배송완료', '카카오페이', '우체국택배', '1049-2281-9930', '010-9876-5432', '서울 강남구 압구정로 10')
+ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, updated_at = NOW();
+
+INSERT INTO public.wishlist_items (id, user_id, user_email, user_name, product_id, product_name, category, price)
+VALUES
+  ('usr-customer-01_jl-out-01', 'usr-customer-01', 'customer@jeonjulee.kr', '김서연', 'jl-out-01', '울 캐시미어 릴렉스드 도포 코트', 'OUTER', 468000),
+  ('usr-customer-01_jl-top-01', 'usr-customer-01', 'customer@jeonjulee.kr', '김서연', 'jl-top-01', '실크 코튼 블렌드 저고리 셔츠', 'TOP', 198000)
+ON CONFLICT (id) DO UPDATE SET price = EXCLUDED.price, created_at = NOW();
+
+INSERT INTO public.cart_items (id, user_id, user_email, user_name, product_id, product_name, selected_color, selected_size, quantity, unit_price, total_price, selected)
+VALUES
+  ('usr-customer-01_jl-out-01_L', 'usr-customer-01', 'customer@jeonjulee.kr', '김서연', 'jl-out-01', '울 캐시미어 릴렉스드 도포 코트', '먹색 (Ink Black)', 'L (100-105)', 1, 468000, 468000, true)
+ON CONFLICT (id) DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = NOW();`;
                     navigator.clipboard.writeText(sql);
-                    showToast('대시보드(dashboard_summary, dashboard_orders) & 주문(orders) & 원부자재 통합 SQL이 복사되었습니다!');
+                    showToast('대시보드·주문·찜(wishlist_items)·장바구니(cart_items) 통합 SQL이 복사되었습니다!');
                   }}
                   className="w-full py-2 bg-lacquer hover:bg-lacquer-light text-paper-100 text-xs font-medium rounded-sm transition-colors flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  <span>대시보드/주문 SQL 복사하기</span>
+                  <span>대시보드/주문/찜/장바구니 SQL 복사</span>
                 </button>
                 <button
                   onClick={handleSyncData}

@@ -1,7 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { CartItem, Product, ProductColor, Coupon } from '../types';
 import { INITIAL_COUPONS } from '../data/mockData';
 import { useToast } from './ToastContext';
+import { useAuth } from './AuthContext';
+import { useProducts } from './ProductContext';
+import { dbService } from '../services/dbService';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface CartContextType {
   items: CartItem[];
@@ -13,6 +17,8 @@ interface CartContextType {
   toggleSelect: (id: string) => void;
   selectAll: (selected: boolean) => void;
   clearCart: () => void;
+  syncCartToDb: () => Promise<{ success: boolean; message: string }>;
+  isSyncingCart: boolean;
   // Coupon
   appliedCoupon: Coupon | null;
   applyCoupon: (code: string) => boolean;
@@ -35,6 +41,14 @@ const BASE_SHIPPING_FEE = 3000;
 
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { showToast } = useToast();
+  const { user } = useAuth();
+  const { products } = useProducts();
+  const [isSyncingCart, setIsSyncingCart] = useState(false);
+
+  const currentUserId = user?.id || 'guest';
+  const currentUserEmail = user?.email || 'guest@jeonjulee.kr';
+  const currentUserName = user?.name || '비회원 고객';
+
   const [items, setItems] = useState<CartItem[]>(() => {
     try {
       const saved = localStorage.getItem(CART_STORAGE_KEY);
@@ -50,6 +64,34 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
   }, [items]);
 
+  // Supabase cart_items 초기 로드 및 자동 동기화
+  useEffect(() => {
+    if (!isSupabaseConfigured() || products.length === 0) return;
+    let cancelled = false;
+
+    const loadOrSyncCart = async () => {
+      const cloudItems = await dbService.fetchCartItems(currentUserId, products);
+      if (cancelled) return;
+
+      if (cloudItems && cloudItems.length > 0) {
+        setItems(cloudItems);
+      } else if (items.length > 0) {
+        // 클라우드에 해당 유저 장바구니가 아직 없으면 현재 장바구니 자동 업로드
+        await dbService.syncCartToSupabase({
+          userId: currentUserId,
+          userEmail: currentUserEmail,
+          userName: currentUserName,
+          items,
+        });
+      }
+    };
+
+    loadOrSyncCart();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId, products.length]);
+
   const addToCart = (product: Product, color: ProductColor, size: string, quantity = 1) => {
     const existingIndex = items.findIndex(
       (item) =>
@@ -59,16 +101,22 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
 
     if (existingIndex > -1) {
+      const updatedItem: CartItem = {
+        ...items[existingIndex],
+        quantity: items[existingIndex].quantity + quantity,
+      };
       setItems((prev) =>
-        prev.map((item, index) =>
-          index === existingIndex
-            ? { ...item, quantity: item.quantity + quantity }
-            : item
-        )
+        prev.map((item, index) => (index === existingIndex ? updatedItem : item))
       );
+      void dbService.saveCartItem({
+        userId: currentUserId,
+        userEmail: currentUserEmail,
+        userName: currentUserName,
+        item: updatedItem,
+      });
     } else {
       const newItem: CartItem = {
-        id: `${product.id}-${color.name}-${size}-${Date.now()}`,
+        id: `${currentUserId}_${product.id}_${color.name}_${size}`,
         productId: product.id,
         product,
         selectedColor: color,
@@ -77,23 +125,34 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         selected: true,
       };
       setItems((prev) => [newItem, ...prev]);
+      void dbService.saveCartItem({
+        userId: currentUserId,
+        userEmail: currentUserEmail,
+        userName: currentUserName,
+        item: newItem,
+      });
     }
 
-    showToast(`"${product.name}" 장바구니에 담겼습니다.`, 'success');
+    showToast(`"${product.name}" 장바구니(Supabase DB)에 담겼습니다.`, 'success');
   };
 
   const updateQuantity = (id: string, delta: number) => {
-    setItems((prev) =>
-      prev
-        .map((item) => {
-          if (item.id === id) {
-            const newQty = item.quantity + delta;
-            return newQty > 0 ? { ...item, quantity: newQty } : null;
-          }
-          return item;
-        })
-        .filter(Boolean) as CartItem[]
-    );
+    const target = items.find((i) => i.id === id);
+    if (!target) return;
+    const newQty = target.quantity + delta;
+    if (newQty <= 0) {
+      setItems((prev) => prev.filter((item) => item.id !== id));
+      void dbService.deleteCartItem(id);
+      return;
+    }
+    const updatedItem = { ...target, quantity: newQty };
+    setItems((prev) => prev.map((item) => (item.id === id ? updatedItem : item)));
+    void dbService.saveCartItem({
+      userId: currentUserId,
+      userEmail: currentUserEmail,
+      userName: currentUserName,
+      item: updatedItem,
+    });
   };
 
   const setQuantity = (id: string, qty: number) => {
@@ -101,37 +160,75 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       removeFromCart(id);
       return;
     }
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, quantity: qty } : item))
-    );
+    const target = items.find((i) => i.id === id);
+    if (!target) return;
+    const updatedItem = { ...target, quantity: qty };
+    setItems((prev) => prev.map((item) => (item.id === id ? updatedItem : item)));
+    void dbService.saveCartItem({
+      userId: currentUserId,
+      userEmail: currentUserEmail,
+      userName: currentUserName,
+      item: updatedItem,
+    });
   };
 
   const removeFromCart = (id: string) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
-    showToast('선택한 상품이 장바구니에서 삭제되었습니다.', 'info');
+    showToast('선택한 상품이 장바구니(Supabase DB)에서 삭제되었습니다.', 'info');
+    void dbService.deleteCartItem(id);
   };
 
   const removeSelected = () => {
+    const selectedIds = items.filter((item) => item.selected !== false).map((item) => item.id);
     setItems((prev) => prev.filter((item) => !item.selected));
-    showToast('선택된 상품들이 삭제되었습니다.', 'info');
+    showToast('선택된 상품들이 장바구니(Supabase DB)에서 삭제되었습니다.', 'info');
+    void dbService.deleteCartItems(selectedIds);
   };
 
   const toggleSelect = (id: string) => {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, selected: !item.selected } : item
-      )
-    );
+    const target = items.find((i) => i.id === id);
+    if (!target) return;
+    const updatedItem = { ...target, selected: !target.selected };
+    setItems((prev) => prev.map((item) => (item.id === id ? updatedItem : item)));
+    void dbService.saveCartItem({
+      userId: currentUserId,
+      userEmail: currentUserEmail,
+      userName: currentUserName,
+      item: updatedItem,
+    });
   };
 
   const selectAll = (selected: boolean) => {
-    setItems((prev) => prev.map((item) => ({ ...item, selected })));
+    const nextItems = items.map((item) => ({ ...item, selected }));
+    setItems(nextItems);
+    void dbService.syncCartToSupabase({
+      userId: currentUserId,
+      userEmail: currentUserEmail,
+      userName: currentUserName,
+      items: nextItems,
+    });
   };
 
   const clearCart = () => {
     setItems([]);
     setAppliedCoupon(null);
+    void dbService.clearCartItems(currentUserId);
   };
+
+  const syncCartToDb = useCallback(async () => {
+    setIsSyncingCart(true);
+    try {
+      const res = await dbService.syncCartToSupabase({
+        userId: currentUserId,
+        userEmail: currentUserEmail,
+        userName: currentUserName,
+        items,
+      });
+      return { success: res.success, message: res.message };
+    } finally {
+      setIsSyncingCart(false);
+    }
+  }, [currentUserId, currentUserEmail, currentUserName, items]);
 
   // Calculations for selected items
   const selectedItems = useMemo(
@@ -218,6 +315,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         toggleSelect,
         selectAll,
         clearCart,
+        syncCartToDb,
+        isSyncingCart,
         appliedCoupon,
         applyCoupon,
         removeCoupon,
