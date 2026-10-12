@@ -5,37 +5,195 @@ import { PRODUCTS } from '../data/products';
 
 // 1. 데이터베이스 서비스
 export const dbService = {
-  // 주문 생성
+  // 내부 헬퍼: 주문 품목명 요약 생성 (예: "울 캐시미어 릴렉스드 도포 코트 외 1건")
+  _getOrderProductSummary(order: Order): string {
+    if (!order.items || order.items.length === 0) return '주문 품목';
+    const first = order.items[0]?.name || '주문 품목';
+    return order.items.length > 1 ? `${first} 외 ${order.items.length - 1}건` : first;
+  },
+
+  // 내부 헬퍼: dashboard_orders 및 orders 테이블에 동시에 안전하게 업서트
+  async _upsertOrdersResilient(orders: Order[]): Promise<{ error: any }> {
+    const client = getSupabaseClient();
+
+    // 1. 직관적인 대시보드 주문 테이블 (public.dashboard_orders) 업서트
+    const dashboardOrdersPayload = orders.map((order) => ({
+      id: order.id,
+      order_number: order.orderNumber,
+      order_date: order.orderDate,
+      customer_name: order.recipientName || '고객',
+      product_name: this._getOrderProductSummary(order),
+      final_price: Number(order.finalPrice ?? 0),
+      status: order.status || '결제완료',
+      payment_method: order.paymentMethod || '신용/체크카드',
+      tracking_carrier: order.trackingCarrier || '',
+      tracking_number: order.trackingNumber || '',
+      recipient_phone: order.recipientPhone || '',
+      postal_code: order.postalCode || '',
+      address: order.address || '',
+      detail_address: order.detailAddress || '',
+      delivery_memo: order.deliveryMemo || order.deliveryRequest || '',
+      total_product_price: Number(order.totalProductPrice ?? order.finalPrice ?? 0),
+      discount_price: Number(order.discountPrice ?? 0),
+      used_points: Number(order.usedPoints ?? 0),
+      shipping_fee: Number(order.shippingFee ?? 0),
+      items: order.items || [],
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error: dashOrderErr } = await client
+      .from('dashboard_orders')
+      .upsert(dashboardOrdersPayload, { onConflict: 'id' });
+
+    // 2. 기본 orders 테이블 (public.orders) 업서트
+    const standardOrdersPayload = orders.map((order) => ({
+      id: order.id,
+      order_number: order.orderNumber,
+      customer_name: order.recipientName || '고객',
+      product_name: this._getOrderProductSummary(order),
+      order_date: order.orderDate,
+      items: order.items || [],
+      total_product_price: Number(order.totalProductPrice ?? order.finalPrice ?? 0),
+      discount_price: Number(order.discountPrice ?? 0),
+      used_points: Number(order.usedPoints ?? 0),
+      coupon_discount: Number(order.couponDiscount ?? 0),
+      coupon_code: order.couponCode || null,
+      shipping_fee: Number(order.shippingFee ?? 0),
+      final_price: Number(order.finalPrice ?? 0),
+      status: order.status || '결제완료',
+      recipient_name: order.recipientName || '고객',
+      recipient_phone: order.recipientPhone || '',
+      postal_code: order.postalCode || '',
+      address: order.address || '',
+      detail_address: order.detailAddress || '',
+      delivery_memo: order.deliveryMemo || order.deliveryRequest || '',
+      payment_method: order.paymentMethod || '신용/체크카드',
+      tracking_carrier: order.trackingCarrier || null,
+      tracking_number: order.trackingNumber || null,
+      refund_reason: order.refundReason || null,
+    }));
+
+    let { error: ordersErr } = await client
+      .from('orders')
+      .upsert(standardOrdersPayload, { onConflict: 'id' });
+
+    // 만약 기존 orders 테이블에 customer_name, product_name 컬럼이 아직 없으면 제외한 페이로드로 재시도
+    if (
+      ordersErr &&
+      ordersErr.message &&
+      (ordersErr.message.includes('customer_name') || ordersErr.message.includes('product_name'))
+    ) {
+      const legacyOrdersPayload = standardOrdersPayload.map(
+        ({ customer_name, product_name, ...rest }) => rest
+      );
+      const retry = await client.from('orders').upsert(legacyOrdersPayload, { onConflict: 'id' });
+      ordersErr = retry.error;
+    }
+
+    // 둘 중 하나라도 성공하면 정상 처리
+    if (!dashOrderErr || !ordersErr) {
+      return { error: null };
+    }
+    return { error: dashOrderErr || ordersErr };
+  },
+
+  // 대시보드 주문 테이블 상태 확인
+  async checkOrdersTableStatus(): Promise<{ exists: boolean; count: number }> {
+    if (!isSupabaseConfigured()) return { exists: false, count: 0 };
+    try {
+      const client = getSupabaseClient();
+      const { count: dashCount, error: dashErr } = await client
+        .from('dashboard_orders')
+        .select('id', { count: 'exact', head: true });
+      if (!dashErr) {
+        return { exists: true, count: dashCount ?? 0 };
+      }
+
+      const { count: ordCount, error: ordErr } = await client
+        .from('orders')
+        .select('id', { count: 'exact', head: true });
+      if (!ordErr) {
+        return { exists: true, count: ordCount ?? 0 };
+      }
+      return { exists: false, count: 0 };
+    } catch {
+      return { exists: false, count: 0 };
+    }
+  },
+
+  // 대시보드 및 주문 목록 조회 (dashboard_orders 우선 조회 후 orders 폴백)
+  async fetchOrders(): Promise<Order[] | null> {
+    if (!isSupabaseConfigured()) return null;
+    try {
+      const client = getSupabaseClient();
+      let { data, error } = await client
+        .from('dashboard_orders')
+        .select('*')
+        .order('order_date', { ascending: false });
+
+      if (error || !data || data.length === 0) {
+        const fallback = await client
+          .from('orders')
+          .select('*')
+          .order('order_date', { ascending: false });
+        if (!fallback.error && fallback.data && fallback.data.length > 0) {
+          data = fallback.data;
+          error = null;
+        }
+      }
+
+      if (error || !data || data.length === 0) return null;
+
+      return data.map((row: any): Order => {
+        const items = Array.isArray(row.items) && row.items.length > 0
+          ? row.items
+          : [
+              {
+                productId: 'jl-out-01',
+                name: row.product_name || '전주이씨 컬렉션 상품',
+                image: 'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=600&q=80',
+                color: '기본',
+                size: 'FREE',
+                price: Number(row.final_price ?? 0),
+                quantity: 1,
+              },
+            ];
+        return {
+          id: row.id,
+          orderNumber: row.order_number || `ORD-${String(row.id).slice(-6).toUpperCase()}`,
+          orderDate: row.order_date || new Date().toISOString().slice(0, 16).replace('T', ' '),
+          items,
+          totalProductPrice: Number(row.total_product_price ?? row.final_price ?? 0),
+          discountPrice: Number(row.discount_price ?? 0),
+          usedPoints: Number(row.used_points ?? 0),
+          couponDiscount: Number(row.coupon_discount ?? 0),
+          couponCode: row.coupon_code || undefined,
+          shippingFee: Number(row.shipping_fee ?? 0),
+          finalPrice: Number(row.final_price ?? 0),
+          status: (row.status || '결제완료') as Order['status'],
+          recipientName: row.customer_name || row.recipient_name || '고객',
+          recipientPhone: row.recipient_phone || '',
+          postalCode: row.postal_code || '',
+          address: row.address || '',
+          detailAddress: row.detail_address || '',
+          deliveryMemo: row.delivery_memo || '',
+          paymentMethod: row.payment_method || '신용/체크카드',
+          trackingCarrier: row.tracking_carrier || undefined,
+          trackingNumber: row.tracking_number || undefined,
+          refundReason: row.refund_reason || undefined,
+        };
+      });
+    } catch (e) {
+      console.warn('Supabase fetchOrders failed:', e);
+      return null;
+    }
+  },
+
+  // 주문 생성 (dashboard_orders 및 orders 테이블에 즉시 저장)
   async createOrder(order: Order): Promise<boolean> {
     if (!isSupabaseConfigured()) return false;
     try {
-      const client = getSupabaseClient();
-      const { error } = await client.from('orders').insert([
-        {
-          id: order.id,
-          order_number: order.orderNumber,
-          order_date: order.orderDate,
-          items: order.items,
-          total_product_price: order.totalProductPrice,
-          discount_price: order.discountPrice,
-          used_points: order.usedPoints,
-          coupon_discount: order.couponDiscount || 0,
-          coupon_code: order.couponCode || '',
-          shipping_fee: order.shippingFee,
-          final_price: order.finalPrice,
-          status: order.status,
-          recipient_name: order.recipientName,
-          recipient_phone: order.recipientPhone,
-          postal_code: order.postalCode,
-          address: order.address,
-          detail_address: order.detailAddress,
-          delivery_memo: order.deliveryMemo || order.deliveryRequest || '',
-          payment_method: order.paymentMethod,
-          refund_status: order.refundStatus || 'none',
-          refund_reason: order.refundReason || '',
-          refund_account: order.refundAccount || null,
-        },
-      ]);
+      const { error } = await this._upsertOrdersResilient([order]);
       return !error;
     } catch (e) {
       console.warn('Supabase createOrder fallback:', e);
@@ -43,24 +201,105 @@ export const dbService = {
     }
   },
 
-  // 주문 상태 업데이트 (배송, 취소, 환불 등)
-  async updateOrderStatus(orderId: string, updates: Partial<Order>): Promise<boolean> {
+  // 주문 상태 업데이트 (배송, 취소, 환불 등 — dashboard_orders 및 orders 동시 반영)
+  async updateOrderStatus(
+    orderId: string,
+    updates: Partial<Order>,
+    fullOrder?: Order
+  ): Promise<boolean> {
     if (!isSupabaseConfigured()) return false;
     try {
-      const client = getSupabaseClient();
-      const payload: any = {};
-      if (updates.status) payload.status = updates.status;
-      if (updates.trackingCarrier) payload.tracking_carrier = updates.trackingCarrier;
-      if (updates.trackingNumber) payload.tracking_number = updates.trackingNumber;
-      if (updates.refundStatus) payload.refund_status = updates.refundStatus;
-      if (updates.refundReason) payload.refund_reason = updates.refundReason;
-      if (updates.refundAccount) payload.refund_account = updates.refundAccount;
+      if (fullOrder) {
+        const { error: upsertErr } = await this._upsertOrdersResilient([fullOrder]);
+        if (!upsertErr) return true;
+      }
 
+      const client = getSupabaseClient();
+      const payload: Record<string, any> = {};
+      if (updates.status !== undefined) payload.status = updates.status;
+      if (updates.trackingCarrier !== undefined) payload.tracking_carrier = updates.trackingCarrier;
+      if (updates.trackingNumber !== undefined) payload.tracking_number = updates.trackingNumber;
+      if (updates.refundReason !== undefined) payload.refund_reason = updates.refundReason;
+
+      await client
+        .from('dashboard_orders')
+        .update({ ...payload, updated_at: new Date().toISOString() })
+        .eq('id', orderId);
       const { error } = await client.from('orders').update(payload).eq('id', orderId);
       return !error;
     } catch (e) {
       console.warn('Supabase updateOrderStatus fallback:', e);
       return false;
+    }
+  },
+
+  // 대시보드 상단 4대 요약 카드(dashboard_summary) 및 실시간 주문 내역(dashboard_orders, orders) 통합 저장
+  async syncDashboardToSupabase(params: {
+    orders: Order[];
+    membersCount: number;
+    lowStockCount: number;
+    productsCount?: number;
+    poCount?: number;
+  }): Promise<{ success: boolean; orderCount: number; message: string }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        orderCount: 0,
+        message: 'Supabase가 설정되지 않았습니다.',
+      };
+    }
+
+    try {
+      const client = getSupabaseClient();
+      const { orders, membersCount, lowStockCount, productsCount = 10, poCount = 3 } = params;
+
+      const totalRevenue = orders.reduce((sum, o) => sum + (Number(o.finalPrice) || 0), 0);
+      const pendingShippingCount = orders.filter(
+        (o) => o.status === '결제완료' || o.status === '반품신청'
+      ).length;
+      const refundRequestCount = orders.filter((o) => o.status === '반품신청').length;
+
+      // 1. 대시보드 요약 카드 테이블 (public.dashboard_summary) 업서트
+      const summaryPayload = {
+        id: 'main-dashboard',
+        dashboard_title: '전주이씨 공식 부티크 실시간 대시보드',
+        total_revenue: totalRevenue,
+        total_order_count: orders.length,
+        pending_shipping_count: pendingShippingCount,
+        refund_request_count: refundRequestCount,
+        registered_member_count: membersCount,
+        low_stock_material_count: lowStockCount,
+        total_product_count: productsCount,
+        total_po_count: poCount,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: summaryErr } = await client
+        .from('dashboard_summary')
+        .upsert([summaryPayload], { onConflict: 'id' });
+
+      // 2. 대시보드 실시간 주문 접수 내역 (public.dashboard_orders & public.orders) 업서트
+      const { error: orderErr } = await this._upsertOrdersResilient(orders);
+
+      if (summaryErr && orderErr) {
+        return {
+          success: false,
+          orderCount: 0,
+          message: `대시보드 테이블 생성이 필요합니다 (${summaryErr.message}). [대시보드 SQL 복사] 후 SQL Editor에서 실행해주세요!`,
+        };
+      }
+
+      return {
+        success: true,
+        orderCount: orders.length,
+        message: `대시보드 요약 지표(매출 ${totalRevenue.toLocaleString()}원) 및 실시간 주문 내역(${orders.length}건)이 Supabase [dashboard_summary / dashboard_orders] 테이블에 저장되었습니다!`,
+      };
+    } catch (e: any) {
+      return {
+        success: false,
+        orderCount: 0,
+        message: `대시보드 저장 오류: ${e?.message || '통신 오류'}`,
+      };
     }
   },
 
@@ -1453,13 +1692,103 @@ export const dbService = {
       }));
       await client.from('board_posts').upsert(postPayload);
 
-      // 6. 첨부 이미지 및 상품 이미지를 Supabase Storage 'products' 버킷에 일괄 저장
+      // 6. 대시보드 요약(dashboard_summary) 및 주문내역(dashboard_orders, orders) 동기화
+      let savedOrders: Order[] = [];
+      try {
+        const rawOrders = localStorage.getItem('jeonjulee_orders');
+        if (rawOrders) savedOrders = JSON.parse(rawOrders);
+      } catch {}
+      if (!savedOrders || savedOrders.length === 0) {
+        savedOrders = [
+          {
+            id: 'ord-20260305-01',
+            orderNumber: 'ORD-20260305-8821',
+            orderDate: '2026-03-05 14:20',
+            items: [
+              {
+                productId: 'jl-out-01',
+                name: '울 캐시미어 릴렉스드 도포 코트',
+                image: 'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=600&q=80',
+                color: '먹색 (Ink Black)',
+                size: 'L (100-105)',
+                price: 468000,
+                quantity: 1,
+              },
+            ],
+            totalProductPrice: 468000,
+            discountPrice: 46800,
+            usedPoints: 5000,
+            couponDiscount: 46800,
+            couponCode: 'WELCOME10',
+            shippingFee: 0,
+            finalPrice: 416200,
+            status: '배송중',
+            recipientName: '김서연',
+            recipientPhone: '010-9876-5432',
+            postalCode: '06000',
+            address: '서울특별시 강남구 압구정로 10',
+            detailAddress: '101동 502호',
+            deliveryMemo: '문 앞에 놓아주세요.',
+            paymentMethod: '신용/체크카드 (현대카드)',
+            trackingCarrier: 'CJ대한통운',
+            trackingNumber: '6482-9103-4412',
+          },
+          {
+            id: 'ord-20260228-02',
+            orderNumber: 'ORD-20260228-3312',
+            orderDate: '2026-02-28 19:05',
+            items: [
+              {
+                productId: 'jl-acc-02',
+                name: '전통 매듭 노리개 키링 & 가죽 참',
+                image: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=600&q=80',
+                color: '비취/적색 (Jade & Crimson)',
+                size: 'FREE',
+                price: 68000,
+                quantity: 1,
+              },
+            ],
+            totalProductPrice: 68000,
+            discountPrice: 0,
+            usedPoints: 0,
+            couponDiscount: 0,
+            shippingFee: 0,
+            finalPrice: 68000,
+            status: '배송완료',
+            recipientName: '김서연',
+            recipientPhone: '010-9876-5432',
+            postalCode: '06000',
+            address: '서울특별시 강남구 압구정로 10',
+            detailAddress: '101동 502호',
+            deliveryMemo: '경비실에 맡겨주세요.',
+            paymentMethod: '간편결제 (카카오페이)',
+            trackingCarrier: '우체국택배',
+            trackingNumber: '1049-2281-9930',
+          },
+        ];
+      }
+      let savedUsersCount = 3;
+      try {
+        const rawUsers = localStorage.getItem('jeonjulee_all_users');
+        if (rawUsers) savedUsersCount = JSON.parse(rawUsers).length || 3;
+      } catch {}
+      const lowStockCount = INITIAL_MATERIALS.filter((m) => m.currentStock <= m.safeStock).length;
+      await this.syncDashboardToSupabase({
+        orders: savedOrders,
+        membersCount: savedUsersCount,
+        lowStockCount,
+        productsCount: PRODUCTS.length,
+        poCount: INITIAL_PURCHASE_ORDERS.length,
+      });
+
+      // 7. 첨부 이미지 및 상품 이미지를 Supabase Storage 'products' 버킷에 일괄 저장
       const imgRes = await this.syncAttachedImagesToStorage(PRODUCTS);
 
       return {
         success: true,
-        message: `Supabase 동기화 완료! (상품 ${productCount}개, 원부자재 ${materialCount}건, 발주서 ${poCount}건, Storage(products) 이미지 ${imgRes.uploadedCount}장 저장)`,
+        message: `Supabase 동기화 완료! (대시보드 주문 ${savedOrders.length}건, 상품 ${productCount}개, 원부자재 ${materialCount}건, 발주서 ${poCount}건, Storage 이미지 ${imgRes.uploadedCount}장 저장)`,
         counts: {
+          orders: savedOrders.length,
           products: productCount,
           materials: materialCount,
           purchaseOrders: poCount,

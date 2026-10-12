@@ -26,6 +26,7 @@ interface AuthContextType {
   adminUpdateUserPoints: (userId: string, deltaPoints: number, reason: string) => void;
   adminUpdateUserRole: (userId: string, newRole: 'customer' | 'admin') => void;
   refreshMembers: () => Promise<void>;
+  refreshOrders: () => Promise<void>;
   syncAllMembersToCloud: () => Promise<{ success: boolean; count: number; message: string }>;
 }
 
@@ -78,7 +79,7 @@ const INITIAL_CUSTOMER: User = {
   createdAt: '2026-02-15',
 };
 
-const INITIAL_MEMBERS: User[] = [
+export const INITIAL_MEMBERS: User[] = [
   INITIAL_ADMIN,
   INITIAL_CUSTOMER,
   {
@@ -98,7 +99,7 @@ const INITIAL_MEMBERS: User[] = [
   },
 ];
 
-const INITIAL_ORDERS: Order[] = [
+export const INITIAL_ORDERS: Order[] = [
   {
     id: 'ord-20260305-01',
     orderNumber: 'ORD-20260305-8821',
@@ -294,6 +295,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  // Supabase dashboard_orders / orders 테이블에서 주문 목록 동기화 (0건이면 초기 데이터 자동 저장)
+  const refreshOrders = async () => {
+    if (!isSupabaseConfigured()) return;
+    try {
+      const status = await dbService.checkOrdersTableStatus();
+      if (status.exists && status.count === 0) {
+        await dbService._upsertOrdersResilient(orders);
+      } else {
+        const remoteOrders = await dbService.fetchOrders();
+        if (remoteOrders && remoteOrders.length > 0) {
+          const remoteIds = new Set(remoteOrders.map((o) => o.id));
+          const unsyncedLocal = orders.filter((o) => !remoteIds.has(o.id));
+          if (unsyncedLocal.length > 0) {
+            await dbService._upsertOrdersResilient(unsyncedLocal);
+          }
+          setOrders([...unsyncedLocal, ...remoteOrders]);
+        }
+      }
+    } catch (e) {
+      console.warn('refreshOrders error:', e);
+    }
+  };
+
   // 현재 모든 회원을 Supabase members 테이블에 일괄 업로드
   const syncAllMembersToCloud = async () => {
     return await dbService.syncAllMembersToSupabase(allUsers.map(normalizeAdminUser));
@@ -301,6 +325,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     refreshMembers();
+    refreshOrders();
+    const handleConnectionChange = () => {
+      refreshMembers();
+      refreshOrders();
+    };
+    window.addEventListener('supabase-connection-changed', handleConnectionChange);
+    return () => window.removeEventListener('supabase-connection-changed', handleConnectionChange);
   }, []);
 
   const login = async (email: string, password?: string): Promise<boolean> => {
@@ -552,13 +583,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             trackingCarrier: trackingCarrier || order.trackingCarrier,
             trackingNumber: trackingNumber || order.trackingNumber,
           };
-          dbService.updateOrderStatus(orderId, updated);
+          dbService.updateOrderStatus(orderId, updated, updated);
           return updated;
         }
         return order;
       })
     );
-    showToast(`주문 상태가 '${status}'(으)로 변경되었습니다.`);
+    showToast(`주문 상태가 '${status}'(으)로 변경되었습니다. (Supabase DB 실시간 반영)`);
   };
 
   const cancelOrder = (orderId: string, reason: string) => {
@@ -570,7 +601,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             status: '주문취소',
             cancelReason: reason,
           };
-          dbService.updateOrderStatus(orderId, updated);
+          dbService.updateOrderStatus(orderId, updated, updated);
           return updated;
         }
         return order;
@@ -594,7 +625,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             refundReason: reason,
             refundAccount: account,
           };
-          dbService.updateOrderStatus(orderId, updated);
+          dbService.updateOrderStatus(orderId, updated, updated);
           return updated;
         }
         return order;
@@ -700,6 +731,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         adminUpdateUserRole,
         refreshMembers,
         syncAllMembersToCloud,
+        refreshOrders,
       }}
     >
       {children}

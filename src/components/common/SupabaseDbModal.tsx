@@ -672,6 +672,117 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
                   <span>원부자재/발주 SQL 복사하기</span>
                 </button>
                 <button
+                  onClick={() => {
+                    const sql = `-- 전주이씨 (JEONJU LEE) 대시보드 요약(dashboard_summary) & 실시간 주문내역(dashboard_orders, orders) 직관적 한글 설명 SQL
+CREATE TABLE IF NOT EXISTS public.dashboard_summary (
+    id TEXT PRIMARY KEY DEFAULT 'main',
+    brand_name TEXT NOT NULL DEFAULT '전주이씨 (JEONJU LEE)',
+    ceo_name TEXT NOT NULL DEFAULT '이종웅 대표',
+    total_revenue INTEGER NOT NULL DEFAULT 0,
+    total_order_count INTEGER NOT NULL DEFAULT 0,
+    pending_shipping_count INTEGER NOT NULL DEFAULT 0,
+    refund_request_count INTEGER NOT NULL DEFAULT 0,
+    registered_member_count INTEGER NOT NULL DEFAULT 0,
+    low_stock_material_count INTEGER NOT NULL DEFAULT 0,
+    total_product_count INTEGER NOT NULL DEFAULT 0,
+    total_po_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+COMMENT ON TABLE public.dashboard_summary IS '📊 [대시보드 요약] 누적 매출, 배송/환불 대기, 등록 회원 수, 부족 자재 현황';
+ALTER TABLE public.dashboard_summary ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "dashboard_summary_select_policy" ON public.dashboard_summary;
+CREATE POLICY "dashboard_summary_select_policy" ON public.dashboard_summary FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "dashboard_summary_insert_policy" ON public.dashboard_summary;
+CREATE POLICY "dashboard_summary_insert_policy" ON public.dashboard_summary FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "dashboard_summary_update_policy" ON public.dashboard_summary;
+CREATE POLICY "dashboard_summary_update_policy" ON public.dashboard_summary FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "dashboard_summary_delete_policy" ON public.dashboard_summary;
+CREATE POLICY "dashboard_summary_delete_policy" ON public.dashboard_summary FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.dashboard_summary TO anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS public.dashboard_orders (
+    id TEXT PRIMARY KEY,
+    order_number TEXT UNIQUE NOT NULL,
+    order_date TEXT NOT NULL,
+    customer_name TEXT NOT NULL,
+    product_name TEXT NOT NULL,
+    final_price INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT '결제완료',
+    payment_method TEXT DEFAULT '신용/체크카드',
+    tracking_carrier TEXT DEFAULT '',
+    tracking_number TEXT DEFAULT '',
+    recipient_phone TEXT DEFAULT '',
+    address TEXT DEFAULT '',
+    items JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+COMMENT ON TABLE public.dashboard_orders IS '📦 [대시보드 실시간 주문내역] 주문번호, 주문일시, 주문자, 품목명, 실결제액, 배송상태';
+ALTER TABLE public.dashboard_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "dashboard_orders_select_policy" ON public.dashboard_orders;
+CREATE POLICY "dashboard_orders_select_policy" ON public.dashboard_orders FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "dashboard_orders_insert_policy" ON public.dashboard_orders;
+CREATE POLICY "dashboard_orders_insert_policy" ON public.dashboard_orders FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "dashboard_orders_update_policy" ON public.dashboard_orders;
+CREATE POLICY "dashboard_orders_update_policy" ON public.dashboard_orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "dashboard_orders_delete_policy" ON public.dashboard_orders;
+CREATE POLICY "dashboard_orders_delete_policy" ON public.dashboard_orders FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.dashboard_orders TO anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS public.orders (
+    id TEXT PRIMARY KEY,
+    order_number TEXT UNIQUE NOT NULL,
+    customer_name TEXT DEFAULT '고객',
+    product_summary TEXT DEFAULT '',
+    user_id TEXT,
+    order_date TEXT NOT NULL,
+    items JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_product_price INTEGER NOT NULL DEFAULT 0,
+    discount_price INTEGER DEFAULT 0,
+    used_points INTEGER DEFAULT 0,
+    coupon_discount INTEGER DEFAULT 0,
+    coupon_code TEXT,
+    shipping_fee INTEGER DEFAULT 0,
+    final_price INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT '결제완료',
+    recipient_name TEXT NOT NULL,
+    recipient_phone TEXT NOT NULL,
+    postal_code TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    detail_address TEXT DEFAULT '',
+    delivery_memo TEXT DEFAULT '',
+    payment_method TEXT NOT NULL DEFAULT '신용/체크카드',
+    tracking_carrier TEXT,
+    tracking_number TEXT,
+    cancel_reason TEXT,
+    refund_status TEXT DEFAULT 'none',
+    refund_reason TEXT,
+    refund_account JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS customer_name TEXT DEFAULT '고객';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS product_summary TEXT DEFAULT '';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_status TEXT DEFAULT 'none';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_account JSONB;
+COMMENT ON TABLE public.orders IS '🛒 [주문/배송/환불 관리] 전체 주문 상세 내역 및 송장/환불 정보';
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "orders_select_policy" ON public.orders;
+CREATE POLICY "orders_select_policy" ON public.orders FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "orders_insert_policy" ON public.orders;
+CREATE POLICY "orders_insert_policy" ON public.orders FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "orders_update_policy" ON public.orders;
+CREATE POLICY "orders_update_policy" ON public.orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "orders_delete_policy" ON public.orders;
+CREATE POLICY "orders_delete_policy" ON public.orders FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
+                    navigator.clipboard.writeText(sql);
+                    showToast('대시보드(dashboard_summary, dashboard_orders) & 주문(orders) SQL이 복사되었습니다!');
+                  }}
+                  className="w-full py-2 bg-lacquer hover:bg-lacquer-light text-paper-100 text-xs font-medium rounded-sm transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>대시보드/주문 SQL 복사하기</span>
+                </button>
+                <button
                   onClick={handleSyncData}
                   disabled={syncing || !configured}
                   className="w-full py-1.5 bg-paper-200 hover:bg-paper-300 text-ink-900 text-xs font-medium rounded-sm border border-paper-300 transition-colors disabled:opacity-40"

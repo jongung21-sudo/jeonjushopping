@@ -44,7 +44,7 @@ interface AdminPageProps {
 }
 
 export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
-  const { orders, updateOrderStatus, allUsers, adminUpdateUserPoints, adminUpdateUserRole, refreshMembers, syncAllMembersToCloud } = useAuth();
+  const { orders, updateOrderStatus, allUsers, adminUpdateUserPoints, adminUpdateUserRole, refreshMembers, syncAllMembersToCloud, refreshOrders } = useAuth();
   const { showToast } = useToast();
   const {
     products: productsList,
@@ -127,6 +127,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
   });
 
   const [isSyncingErp, setIsSyncingErp] = useState(false);
+  const [isSyncingDashboard, setIsSyncingDashboard] = useState(false);
+  const [dashboardDbStatus, setDashboardDbStatus] = useState<{
+    exists: boolean;
+    count: number;
+    dashboardOrdersExists?: boolean;
+    dashboardSummaryExists?: boolean;
+  }>({ exists: false, count: 0 });
 
   const [taxes, setTaxes] = useState<TaxInvoice[]>(() => {
     try {
@@ -266,6 +273,34 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
       window.removeEventListener('supabase-connection-changed', handleConnectionChange);
     };
   }, []);
+
+  // 대시보드 요약(dashboard_summary) 및 주문내역(dashboard_orders, orders) 자동 실시간 동기화
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let cancelled = false;
+    const autoSyncDashboard = async () => {
+      try {
+        const lowStock = materials.filter((m) => m.currentStock <= m.safeStock).length;
+        await dbService.syncDashboardToSupabase({
+          orders,
+          membersCount: allUsers.length,
+          lowStockCount: lowStock,
+          productsCount: productsList.length,
+          poCount: purchaseOrders.length,
+        });
+        const status = await dbService.checkOrdersTableStatus();
+        if (!cancelled) {
+          setDashboardDbStatus(status);
+        }
+      } catch (e) {
+        console.warn('Auto sync dashboard error:', e);
+      }
+    };
+    autoSyncDashboard();
+    return () => {
+      cancelled = true;
+    };
+  }, [orders, allUsers.length, materials, productsList.length, purchaseOrders.length]);
 
   // 상품 목록 필터링
   const filteredProducts = productsList.filter((prod) => {
@@ -869,6 +904,179 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
     showToast('Supabase(cpzyrpaenvzfshqqpmrf) materials 및 purchase_orders 테이블과 동기화 완료!');
   };
 
+  // 대시보드/주문(dashboard_summary, dashboard_orders, orders) 직관적 네이밍 SQL 원클릭 복사
+  const handleCopyDashboardSql = () => {
+    const sql = `-- 전주이씨 (JEONJU LEE) 관리자 대시보드 & 실시간 주문 내역 직관적 테이블 생성 SQL
+-- 대상 프로젝트: https://cpzyrpaenvzfshqqpmrf.supabase.co
+
+-- 1. 📊 [대시보드 요약] (dashboard_summary)
+CREATE TABLE IF NOT EXISTS public.dashboard_summary (
+    id TEXT PRIMARY KEY DEFAULT 'main',
+    brand_name TEXT NOT NULL DEFAULT '전주이씨 (JEONJU LEE)',
+    ceo_name TEXT NOT NULL DEFAULT '이종웅 대표',
+    total_revenue INTEGER NOT NULL DEFAULT 0,             -- 누적 결제 매출 (원)
+    total_order_count INTEGER NOT NULL DEFAULT 0,         -- 전체 결제 합산 건수 (건)
+    pending_shipping_count INTEGER NOT NULL DEFAULT 0,    -- 배송 및 환불 대기 건수 (건)
+    refund_request_count INTEGER NOT NULL DEFAULT 0,      -- 반품/환불 신청 건수 (건)
+    registered_member_count INTEGER NOT NULL DEFAULT 0,   -- 등록 회원 수 (명)
+    low_stock_material_count INTEGER NOT NULL DEFAULT 0,  -- 안전재고 부족 자재 수 (종)
+    total_product_count INTEGER NOT NULL DEFAULT 0,       -- 등록 상품 수 (종)
+    total_po_count INTEGER NOT NULL DEFAULT 0,            -- 원부자재 발주 건수 (건)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.dashboard_summary IS '📊 [대시보드 요약] 누적 매출, 배송/환불 대기, 등록 회원 수, 부족 자재 현황';
+COMMENT ON COLUMN public.dashboard_summary.total_revenue IS '누적 결제 매출 (원)';
+COMMENT ON COLUMN public.dashboard_summary.total_order_count IS '전체 결제 합산 건수 (건)';
+COMMENT ON COLUMN public.dashboard_summary.pending_shipping_count IS '배송 및 환불 대기 건수 (건)';
+COMMENT ON COLUMN public.dashboard_summary.refund_request_count IS '반품/환불 신청 건수 (건)';
+COMMENT ON COLUMN public.dashboard_summary.registered_member_count IS '등록 회원 수 (명)';
+COMMENT ON COLUMN public.dashboard_summary.low_stock_material_count IS '안전재고 부족 자재 수 (종)';
+
+ALTER TABLE public.dashboard_summary ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "dashboard_summary_select_policy" ON public.dashboard_summary;
+CREATE POLICY "dashboard_summary_select_policy" ON public.dashboard_summary FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "dashboard_summary_insert_policy" ON public.dashboard_summary;
+CREATE POLICY "dashboard_summary_insert_policy" ON public.dashboard_summary FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "dashboard_summary_update_policy" ON public.dashboard_summary;
+CREATE POLICY "dashboard_summary_update_policy" ON public.dashboard_summary FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "dashboard_summary_delete_policy" ON public.dashboard_summary;
+CREATE POLICY "dashboard_summary_delete_policy" ON public.dashboard_summary FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.dashboard_summary TO anon, authenticated, service_role;
+
+-- 2. 📦 [대시보드 실시간 주문내역] (dashboard_orders)
+CREATE TABLE IF NOT EXISTS public.dashboard_orders (
+    id TEXT PRIMARY KEY,
+    order_number TEXT UNIQUE NOT NULL,                    -- 주문번호 (예: ORD-20260305-8821)
+    order_date TEXT NOT NULL,                             -- 주문일시 (예: 2026-03-05 14:20)
+    customer_name TEXT NOT NULL,                          -- 주문자 (예: 김서연)
+    product_name TEXT NOT NULL,                           -- 품목명 (예: 울 캐시미어 릴렉스드 도포 코트)
+    final_price INTEGER NOT NULL DEFAULT 0,               -- 실결제액 (예: 416200)
+    status TEXT NOT NULL DEFAULT '결제완료',              -- 상태 (결제완료 / 배송중 / 배송완료 / 반품신청 / 환불완료)
+    payment_method TEXT DEFAULT '신용/체크카드',          -- 결제수단
+    tracking_carrier TEXT DEFAULT '',                     -- 택배사
+    tracking_number TEXT DEFAULT '',                      -- 송장번호
+    recipient_phone TEXT DEFAULT '',                      -- 연락처
+    address TEXT DEFAULT '',                              -- 배송지 주소
+    items JSONB NOT NULL DEFAULT '[]'::jsonb,             -- 주문 상품 상세(JSON)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.dashboard_orders IS '📦 [대시보드 실시간 주문내역] 주문번호, 주문일시, 주문자, 품목명, 실결제액, 배송상태';
+COMMENT ON COLUMN public.dashboard_orders.order_number IS '주문번호';
+COMMENT ON COLUMN public.dashboard_orders.order_date IS '주문일시';
+COMMENT ON COLUMN public.dashboard_orders.customer_name IS '주문자 성명';
+COMMENT ON COLUMN public.dashboard_orders.product_name IS '주문 품목명 요약';
+COMMENT ON COLUMN public.dashboard_orders.final_price IS '실결제액 (원)';
+COMMENT ON COLUMN public.dashboard_orders.status IS '주문/배송 상태';
+
+ALTER TABLE public.dashboard_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "dashboard_orders_select_policy" ON public.dashboard_orders;
+CREATE POLICY "dashboard_orders_select_policy" ON public.dashboard_orders FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "dashboard_orders_insert_policy" ON public.dashboard_orders;
+CREATE POLICY "dashboard_orders_insert_policy" ON public.dashboard_orders FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "dashboard_orders_update_policy" ON public.dashboard_orders;
+CREATE POLICY "dashboard_orders_update_policy" ON public.dashboard_orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "dashboard_orders_delete_policy" ON public.dashboard_orders;
+CREATE POLICY "dashboard_orders_delete_policy" ON public.dashboard_orders FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.dashboard_orders TO anon, authenticated, service_role;
+
+-- 3. 🛒 [주문/배송/환불 관리] (orders)
+CREATE TABLE IF NOT EXISTS public.orders (
+    id TEXT PRIMARY KEY,
+    order_number TEXT UNIQUE NOT NULL,
+    customer_name TEXT DEFAULT '고객',
+    product_summary TEXT DEFAULT '',
+    user_id TEXT,
+    order_date TEXT NOT NULL,
+    items JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_product_price INTEGER NOT NULL DEFAULT 0,
+    discount_price INTEGER DEFAULT 0,
+    used_points INTEGER DEFAULT 0,
+    coupon_discount INTEGER DEFAULT 0,
+    coupon_code TEXT,
+    shipping_fee INTEGER DEFAULT 0,
+    final_price INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT '결제완료',
+    recipient_name TEXT NOT NULL,
+    recipient_phone TEXT NOT NULL,
+    postal_code TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    detail_address TEXT DEFAULT '',
+    delivery_memo TEXT DEFAULT '',
+    payment_method TEXT NOT NULL DEFAULT '신용/체크카드',
+    tracking_carrier TEXT,
+    tracking_number TEXT,
+    cancel_reason TEXT,
+    refund_status TEXT DEFAULT 'none',
+    refund_reason TEXT,
+    refund_account JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS customer_name TEXT DEFAULT '고객';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS product_summary TEXT DEFAULT '';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_status TEXT DEFAULT 'none';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_account JSONB;
+
+COMMENT ON TABLE public.orders IS '🛒 [주문/배송/환불 관리] 전체 주문 상세 내역 및 송장/환불 정보';
+COMMENT ON TABLE public.members IS '👥 [회원 관리] 가입 회원 계정, 이메일, 비밀번호, 등급 및 적립금';
+COMMENT ON TABLE public.products IS '👘 [상품/재고 관리] 전주이씨 컬렉션 상품 목록, 가격, 재고, 이미지';
+COMMENT ON TABLE public.materials IS '🧵 [원부자재 재고] 원단, 안감, 부자재, 패키지 현재고 및 안전재고';
+COMMENT ON TABLE public.purchase_orders IS '📋 [원부자재 발주관리] 거래처 발주서, 입고예정일 및 입고상태';
+
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "orders_select_policy" ON public.orders;
+CREATE POLICY "orders_select_policy" ON public.orders FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "orders_insert_policy" ON public.orders;
+CREATE POLICY "orders_insert_policy" ON public.orders FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "orders_update_policy" ON public.orders;
+CREATE POLICY "orders_update_policy" ON public.orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "orders_delete_policy" ON public.orders;
+CREATE POLICY "orders_delete_policy" ON public.orders FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
+    navigator.clipboard.writeText(sql);
+    showToast('대시보드 요약(dashboard_summary) 및 주문내역(dashboard_orders, orders) 직관적 한글 설명 SQL이 복사되었습니다!');
+  };
+
+  // 대시보드 통계 및 실시간 주문내역 전체를 Supabase에 즉시 저장
+  const handleSyncDashboardToSupabase = async () => {
+    setIsSyncingDashboard(true);
+    try {
+      const lowStock = materials.filter((m) => m.currentStock <= m.safeStock).length;
+      const res = await dbService.syncDashboardToSupabase({
+        orders,
+        membersCount: allUsers.length,
+        lowStockCount: lowStock,
+        productsCount: productsList.length,
+        poCount: purchaseOrders.length,
+      });
+      const status = await dbService.checkOrdersTableStatus();
+      setDashboardDbStatus(status);
+      showToast(res.message, res.success ? 'success' : 'error');
+    } finally {
+      setIsSyncingDashboard(false);
+    }
+  };
+
+  // 대시보드 데이터(주문, 회원, 상품, 자재) Supabase에서 새로고침
+  const handleRefreshDashboardFromSupabase = async () => {
+    setIsSyncingDashboard(true);
+    try {
+      await Promise.all([
+        refreshOrders(),
+        refreshMembers(),
+        refreshProducts(),
+        syncMaterialsAndPOFromSupabase(),
+      ]);
+      const status = await dbService.checkOrdersTableStatus();
+      setDashboardDbStatus(status);
+      showToast('Supabase 대시보드 데이터(dashboard_summary, dashboard_orders, orders) 동기화가 완료되었습니다!');
+    } finally {
+      setIsSyncingDashboard(false);
+    }
+  };
+
   // 신규 발주서 등록 (Supabase purchase_orders 테이블 즉시 저장)
   const handleCreatePO = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1187,54 +1395,145 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
         {/* 1. DASHBOARD TAB */}
         {activeTab === 'DASHBOARD' && (
           <div className="space-y-8 animate-fade-in">
+            {/* 대시보드 Supabase DB 연동 컨트롤 바 (직관적인 테이블/컬럼 네이밍 안내) */}
+            <div className="bg-paper-100 border border-paper-300 p-4 shadow-subtle flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-serif-kr font-bold text-ink-900">
+                    <Database className="w-4 h-4 text-lacquer" />
+                    대시보드 Supabase 실시간 데이터베이스 연동
+                  </span>
+                  {isSupabaseConfigured() && (
+                    <span
+                      className={`px-2 py-0.5 text-[10px] font-sans font-bold rounded border ${
+                        dashboardDbStatus.dashboardSummaryExists || dashboardDbStatus.dashboardOrdersExists || dashboardDbStatus.exists
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                          : 'bg-amber-50 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      {dashboardDbStatus.dashboardSummaryExists && dashboardDbStatus.dashboardOrdersExists
+                        ? `DB 연결됨 (주문 ${dashboardDbStatus.count}건 저장됨)`
+                        : dashboardDbStatus.exists
+                        ? `orders 연결됨 (${dashboardDbStatus.count}건) · 대시보드 전용 테이블 SQL 권장`
+                        : '테이블 생성 필요 ([대시보드/주문 SQL 복사] 실행)'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-ink-600 font-serif-kr">
+                  저장 테이블:{' '}
+                  <code className="bg-paper-200 px-1.5 py-0.5 text-ink-900 font-sans font-semibold">
+                    dashboard_summary
+                  </code>{' '}
+                  <span className="text-ink-500">(📊 대시보드 요약)</span> ·{' '}
+                  <code className="bg-paper-200 px-1.5 py-0.5 text-ink-900 font-sans font-semibold">
+                    dashboard_orders
+                  </code>{' '}
+                  <span className="text-ink-500">(📦 실시간 주문내역)</span> ·{' '}
+                  <code className="bg-paper-200 px-1.5 py-0.5 text-ink-900 font-sans font-semibold">
+                    orders
+                  </code>{' '}
+                  <span className="text-ink-500">(🛒 주문/배송 마스터)</span>
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyDashboardSql}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-amber-500 bg-amber-50 text-amber-900 text-xs font-serif-kr font-semibold hover:bg-amber-100 transition-colors"
+                  title="Supabase Table Editor에서 한글 설명과 직관적인 컬럼명으로 보이도록 테이블 생성 SQL 복사"
+                >
+                  <Database className="w-3.5 h-3.5 text-amber-700" />
+                  대시보드/주문 SQL 복사
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRefreshDashboardFromSupabase}
+                  disabled={isSyncingDashboard}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-paper-300 bg-white text-ink-800 text-xs font-serif-kr hover:border-ink-900 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDashboard ? 'animate-spin' : ''}`} />
+                  대시보드 DB 동기화
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSyncDashboardToSupabase}
+                  disabled={isSyncingDashboard}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-lacquer text-white text-xs font-serif-kr font-medium hover:bg-lacquer-light transition-colors disabled:opacity-50 shadow-sm"
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  {isSyncingDashboard ? 'DB 저장 중...' : '대시보드 전체 DB 저장'}
+                </button>
+              </div>
+            </div>
+
             {/* 상단 통계 카드 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-paper-100 border border-paper-300 p-5 shadow-subtle">
-                <p className="text-xs text-ink-500 font-serif-kr">누적 결제 매출</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-ink-500 font-serif-kr">누적 결제 매출</p>
+                  <code className="text-[10px] text-ink-400 font-sans bg-paper-200 px-1.5 py-0.5">total_revenue</code>
+                </div>
                 <p className="text-2xl font-bold font-sans text-lacquer mt-1">
                   {totalRevenue.toLocaleString()}<span className="text-sm font-normal text-ink-700 ml-1">원</span>
                 </p>
-                <p className="text-[11px] text-ink-400 mt-2 font-serif-kr">전체 {orders.length}건 결제 합산</p>
+                <p className="text-[11px] text-ink-400 mt-2 font-serif-kr">
+                  전체 {orders.length}건 결제 합산 (<code className="font-sans">total_order_count</code>)
+                </p>
               </div>
 
               <div className="bg-paper-100 border border-paper-300 p-5 shadow-subtle">
-                <p className="text-xs text-ink-500 font-serif-kr">배송 및 환불 대기</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-ink-500 font-serif-kr">배송 및 환불 대기</p>
+                  <code className="text-[10px] text-ink-400 font-sans bg-paper-200 px-1.5 py-0.5">pending_shipping_count</code>
+                </div>
                 <p className="text-2xl font-bold font-sans text-ink-900 mt-1">
                   {orders.filter((o) => o.status === '결제완료' || o.status === '반품신청').length}
                   <span className="text-sm font-normal text-ink-700 ml-1">건</span>
                 </p>
                 <p className="text-[11px] text-rose-600 mt-2 font-serif-kr">
-                  반품/환불 신청 {orders.filter((o) => o.status === '반품신청').length}건
+                  반품/환불 신청 {orders.filter((o) => o.status === '반품신청').length}건 (<code className="font-sans">refund_request_count</code>)
                 </p>
               </div>
 
               <div className="bg-paper-100 border border-paper-300 p-5 shadow-subtle">
-                <p className="text-xs text-ink-500 font-serif-kr">등록 회원 수</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-ink-500 font-serif-kr">등록 회원 수</p>
+                  <code className="text-[10px] text-ink-400 font-sans bg-paper-200 px-1.5 py-0.5">registered_member_count</code>
+                </div>
                 <p className="text-2xl font-bold font-sans text-ink-900 mt-1">
                   {allUsers.length}<span className="text-sm font-normal text-ink-700 ml-1">명</span>
                 </p>
-                <p className="text-[11px] text-ink-400 mt-2 font-serif-kr">웰컴 5,000P 지급 회원</p>
+                <p className="text-[11px] text-ink-400 mt-2 font-serif-kr">웰컴 5,000P 지급 회원 (members 연동)</p>
               </div>
 
               <div className="bg-paper-100 border border-paper-300 p-5 shadow-subtle">
-                <p className="text-xs text-ink-500 font-serif-kr">안전재고 부족 자재</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-ink-500 font-serif-kr">안전재고 부족 자재</p>
+                  <code className="text-[10px] text-ink-400 font-sans bg-paper-200 px-1.5 py-0.5">low_stock_material_count</code>
+                </div>
                 <p className="text-2xl font-bold font-sans text-amber-700 mt-1">
                   {materials.filter((m) => m.currentStock <= m.safeStock).length}
                   <span className="text-sm font-normal text-ink-700 ml-1">종</span>
                 </p>
-                <p className="text-[11px] text-amber-700 mt-2 font-serif-kr">공방 추가 발주 필요</p>
+                <p className="text-[11px] text-amber-700 mt-2 font-serif-kr">공방 추가 발주 필요 (materials 연동)</p>
               </div>
             </div>
 
             {/* 최근 주문 현황 */}
             <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-4">
-              <div className="flex justify-between items-center pb-3 border-b border-paper-300">
-                <h2 className="text-sm font-serif-kr font-semibold text-ink-900">
-                  실시간 주문 접수 내역
-                </h2>
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-3 border-b border-paper-300">
+                <div>
+                  <h2 className="text-sm font-serif-kr font-semibold text-ink-900 flex items-center gap-2">
+                    실시간 주문 접수 내역
+                    <span className="text-[11px] font-sans font-normal text-ink-500 bg-paper-200 px-2 py-0.5">
+                      Supabase: public.dashboard_orders / public.orders
+                    </span>
+                  </h2>
+                </div>
                 <button
                   onClick={() => setActiveTab('ORDERS')}
-                  className="text-xs text-lacquer hover:underline font-serif-kr"
+                  className="text-xs text-lacquer hover:underline font-serif-kr self-start sm:self-auto"
                 >
                   주문 관리 전체보기 &rarr;
                 </button>
@@ -1244,16 +1543,28 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
                 <table className="w-full text-xs text-left">
                   <thead className="bg-paper-200 text-ink-700 font-serif-kr">
                     <tr>
-                      <th className="py-2.5 px-3">주문번호</th>
-                      <th className="py-2.5 px-3">주문일시</th>
-                      <th className="py-2.5 px-3">주문자</th>
-                      <th className="py-2.5 px-3">품목명</th>
-                      <th className="py-2.5 px-3">실결제액</th>
-                      <th className="py-2.5 px-3">상태</th>
+                      <th className="py-2.5 px-3">
+                        주문번호 <span className="text-[10px] font-sans text-ink-400 font-normal">(order_number)</span>
+                      </th>
+                      <th className="py-2.5 px-3">
+                        주문일시 <span className="text-[10px] font-sans text-ink-400 font-normal">(order_date)</span>
+                      </th>
+                      <th className="py-2.5 px-3">
+                        주문자 <span className="text-[10px] font-sans text-ink-400 font-normal">(customer_name)</span>
+                      </th>
+                      <th className="py-2.5 px-3">
+                        품목명 <span className="text-[10px] font-sans text-ink-400 font-normal">(product_name)</span>
+                      </th>
+                      <th className="py-2.5 px-3">
+                        실결제액 <span className="text-[10px] font-sans text-ink-400 font-normal">(final_price)</span>
+                      </th>
+                      <th className="py-2.5 px-3">
+                        상태 <span className="text-[10px] font-sans text-ink-400 font-normal">(status)</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-paper-200 font-sans">
-                    {orders.slice(0, 5).map((o) => (
+                    {orders.slice(0, 10).map((o) => (
                       <tr key={o.id} className="hover:bg-paper-50 transition-colors">
                         <td className="py-3 px-3 font-semibold">{o.orderNumber}</td>
                         <td className="py-3 px-3 text-ink-500">{o.orderDate}</td>
@@ -1265,17 +1576,34 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
                           {o.finalPrice.toLocaleString()}원
                         </td>
                         <td className="py-3 px-3 font-serif-kr">
-                          <span className={`px-2 py-0.5 text-[11px] border ${
-                            o.status === '결제완료'
-                              ? 'bg-amber-50 text-amber-800 border-amber-300'
-                              : o.status === '배송중'
-                              ? 'bg-blue-50 text-blue-800 border-blue-300'
-                              : o.status === '반품신청'
-                              ? 'bg-rose-50 text-rose-800 border-rose-300 font-bold'
-                              : 'bg-paper-200 text-ink-800 border-paper-300'
-                          }`}>
-                            {o.status}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 text-[11px] border ${
+                              o.status === '결제완료'
+                                ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                : o.status === '배송중'
+                                ? 'bg-blue-50 text-blue-800 border-blue-300'
+                                : o.status === '반품신청'
+                                ? 'bg-rose-50 text-rose-800 border-rose-300 font-bold'
+                                : 'bg-paper-200 text-ink-800 border-paper-300'
+                            }`}>
+                              {o.status}
+                            </span>
+                            <select
+                              value={o.status}
+                              onChange={(e) => updateOrderStatus(o.id, e.target.value as OrderStatus)}
+                              className="bg-white border border-paper-300 px-1.5 py-0.5 text-[11px] text-ink-700 focus:outline-none focus:border-ink-900"
+                              title="상태 변경 시 Supabase dashboard_orders 및 orders 테이블에 즉시 반영됩니다"
+                            >
+                              <option value="결제완료">결제완료</option>
+                              <option value="상품준비중">상품준비중</option>
+                              <option value="배송중">배송중</option>
+                              <option value="배송완료">배송완료</option>
+                              <option value="구매확정">구매확정</option>
+                              <option value="반품신청">반품신청</option>
+                              <option value="환불완료">환불완료</option>
+                              <option value="주문취소">주문취소</option>
+                            </select>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1289,16 +1617,44 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
         {/* 2. ORDERS TAB (주문/배송/환불 관리) */}
         {activeTab === 'ORDERS' && (
           <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
-            <div className="flex justify-between items-center pb-3 border-b border-paper-300">
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 pb-3 border-b border-paper-300">
               <div>
                 <h2 className="text-base font-serif-kr font-semibold text-ink-900">
                   주문 / 배송 / 환불 통합 처리
                 </h2>
                 <p className="text-xs text-ink-500 font-serif-kr mt-0.5">
-                  상태 변경, 송장 번호 발급, 반품 승인 및 세금계산서 원클릭 발행
+                  상태 변경, 송장 번호 발급, 반품 승인 및 세금계산서 원클릭 발행 (Supabase <code className="font-sans text-ink-800">dashboard_orders</code> · <code className="font-sans text-ink-800">orders</code> 연동)
                 </p>
               </div>
-              <span className="text-xs text-ink-500 font-serif-kr">총 {orders.length}건</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-ink-500 font-serif-kr mr-2">총 {orders.length}건</span>
+                <button
+                  type="button"
+                  onClick={handleCopyDashboardSql}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-500 bg-amber-50 text-amber-900 text-xs font-serif-kr font-semibold hover:bg-amber-100 transition-colors"
+                >
+                  <Database className="w-3.5 h-3.5 text-amber-700" />
+                  대시보드/주문 SQL 복사
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRefreshDashboardFromSupabase}
+                  disabled={isSyncingDashboard}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-paper-300 bg-white text-ink-800 text-xs font-serif-kr hover:border-ink-900 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDashboard ? 'animate-spin' : ''}`} />
+                  주문 DB 동기화
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSyncDashboardToSupabase}
+                  disabled={isSyncingDashboard}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-ink-900 text-paper-50 text-xs font-serif-kr hover:bg-lacquer transition-colors disabled:opacity-50"
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  {isSyncingDashboard ? '저장 중...' : '주문 전체 DB 저장'}
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
