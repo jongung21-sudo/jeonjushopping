@@ -1,7 +1,7 @@
 -- ====================================================================
 -- 전주이씨 (JEONJU LEE) 상품(products) 마스터 테이블 생성 및 권한 설정 SQL
 -- Supabase 대시보드 (SQL Editor)에 붙여넣고 [Run]을 실행하세요.
--- 대상 프로젝트: https://bjofkwwzeapgjahsjdzb.supabase.co
+-- 대상 프로젝트: https://cpzyrpaenvzfshqqpmrf.supabase.co
 -- ====================================================================
 
 -- 1. 상품(products) 테이블 생성

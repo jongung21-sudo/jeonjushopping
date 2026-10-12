@@ -1,19 +1,19 @@
 -- ====================================================================
--- 전주이씨 (JEONJU LEE) 엔터프라이즈 보안 강화 회원가입 SQL
+-- 전주이씨 (JEONJU LEE) 회원가입 (members) 마스터 테이블 생성 및 보안 설정 SQL
 -- Supabase 대시보드 (SQL Editor)에 붙여넣고 [Run]을 실행하세요.
--- 대상 프로젝트: https://bjofkwwzeapgjahsjdzb.supabase.co
+-- 대상 프로젝트: https://cpzyrpaenvzfshqqpmrf.supabase.co
 -- ====================================================================
 
--- 1. 암호화 확장 모듈 활성화 (PostgreSQL pgcrypto: 산업 표준 bcrypt 암호화 지원)
+-- 1. 암호화 확장 모듈 활성화 (PostgreSQL pgcrypto: bcrypt 해시 지원)
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- 2. 회원가입 테이블 (public.members) 생성
+-- 2. 회원가입 테이블 (public.members) 생성 (이메일 & 비밀번호 실제 저장)
 CREATE TABLE IF NOT EXISTS public.members (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     password TEXT NOT NULL,
     password_hash TEXT,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '회원',
     phone TEXT DEFAULT '',
     postal_code TEXT DEFAULT '',
     address TEXT DEFAULT '',
@@ -25,70 +25,42 @@ CREATE TABLE IF NOT EXISTS public.members (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 기존 테이블이 이미 존재하는 경우를 대비한 컬럼 안전 추가
+-- 기존 테이블이 이미 존재하는 경우를 대비한 컬럼 및 제약조건 정리
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS password TEXT DEFAULT '';
 ALTER TABLE public.members ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE public.members DROP CONSTRAINT IF EXISTS check_member_password_min_length;
+ALTER TABLE public.members DROP CONSTRAINT IF EXISTS check_member_phone_format;
+ALTER TABLE public.members DROP CONSTRAINT IF EXISTS check_member_email_format;
 
--- 3. 데이터 무결성 및 보안 검증 제약조건 (CHECK Constraints)
+-- 3. 기본 데이터 무결성 제약조건
 DO $$
 BEGIN
-    -- 이메일 정규식 유효성 제약조건 (잘못된 형식 차단)
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'check_member_email_format') THEN
-        ALTER TABLE public.members ADD CONSTRAINT check_member_email_format 
-        CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
-    END IF;
-
-    -- 성명 필수 입력 제약조건 (공백 차단)
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'check_member_name_not_empty') THEN
-        ALTER TABLE public.members ADD CONSTRAINT check_member_name_not_empty 
-        CHECK (length(trim(name)) >= 1);
-    END IF;
-
-    -- 비밀번호 최소 길이 제약조건 (4자 이상)
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'check_member_password_min_length') THEN
-        ALTER TABLE public.members ADD CONSTRAINT check_member_password_min_length 
-        CHECK (length(password) >= 4);
-    END IF;
-
-    -- 포인트 음수 방지 제약조건 (포인트 부정 차감 방지)
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'check_member_points_non_negative') THEN
         ALTER TABLE public.members ADD CONSTRAINT check_member_points_non_negative 
         CHECK (points >= 0);
     END IF;
-
-    -- 역할(Role) 유효성 제약조건
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'check_member_role_valid') THEN
-        ALTER TABLE public.members ADD CONSTRAINT check_member_role_valid 
-        CHECK (role IN ('customer', 'vip', 'admin', 'superadmin'));
-    END IF;
-
-    -- 전화번호 형식 검증 제약조건
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'check_member_phone_format') THEN
-        ALTER TABLE public.members ADD CONSTRAINT check_member_phone_format 
-        CHECK (phone = '' OR phone ~ '^[0-9\-\+\s]{8,20}$');
-    END IF;
 END $$;
 
--- 4. 성능 및 보안 인덱스 생성
+-- 4. 성능 및 검색 인덱스 생성
 CREATE INDEX IF NOT EXISTS idx_members_email_lower ON public.members (lower(trim(email)));
 CREATE INDEX IF NOT EXISTS idx_members_created_at ON public.members (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_members_role ON public.members (role);
 
--- 5. 자동 비밀번호 bcrypt 단방향 암호화 및 타임스탬프 갱신 트리거
--- 평문 비밀번호가 저장되더라도 내부적으로 bcrypt 단방향 암호화 해시(password_hash)를 자동 생성합니다.
+-- 5. 비밀번호 저장 및 bcrypt 해시 자동 생성 트리거
+-- 사용자가 입력한 이메일(email)과 비밀번호(password)를 그대로 저장하면서,
+-- 동시에 보안용 bcrypt 해시(password_hash)도 자동으로 함께 생성합니다.
 CREATE OR REPLACE FUNCTION public.handle_member_security_trigger()
 RETURNS TRIGGER 
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
-    -- 비밀번호가 새로 등록되거나 변경되었을 때 bcrypt 해시 자동 생성 (Cost 10)
-    IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND (NEW.password <> OLD.password OR OLD.password IS NULL)) THEN
+    IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND (NEW.password IS DISTINCT FROM OLD.password)) THEN
         IF NEW.password IS NOT NULL AND NEW.password <> '' THEN
             NEW.password_hash := crypt(NEW.password, gen_salt('bf', 10));
         END IF;
     END IF;
 
-    -- 수정 시간 자동 갱신
     NEW.updated_at := now();
     RETURN NEW;
 END;
@@ -100,25 +72,16 @@ BEFORE INSERT OR UPDATE ON public.members
 FOR EACH ROW
 EXECUTE FUNCTION public.handle_member_security_trigger();
 
--- 6. Row Level Security (RLS) 보안 정책 활성화
--- 데이터베이스 경고를 완전히 제거하고, 무단 데이터 유출 및 삭제를 철저히 차단합니다.
+-- 6. Row Level Security (RLS) 보안 정책 및 권한 부여
 ALTER TABLE public.members ENABLE ROW LEVEL SECURITY;
 
--- 정책 1: 회원가입 (INSERT) - 유효한 형식만 가입 허용
 DROP POLICY IF EXISTS "members_insert_policy" ON public.members;
 CREATE POLICY "members_insert_policy"
 ON public.members
 FOR INSERT
 TO anon, authenticated
-WITH CHECK (
-    email IS NOT NULL AND
-    email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' AND
-    name IS NOT NULL AND
-    length(trim(name)) >= 1 AND
-    length(password) >= 4
-);
+WITH CHECK (true);
 
--- 정책 2: 회원 조회 (SELECT) - 가입 확인 및 로그인 조회 허용
 DROP POLICY IF EXISTS "members_select_policy" ON public.members;
 CREATE POLICY "members_select_policy"
 ON public.members
@@ -126,25 +89,22 @@ FOR SELECT
 TO anon, authenticated
 USING (true);
 
--- 정책 3: 회원정보 수정 (UPDATE) - 무결성 검증
 DROP POLICY IF EXISTS "members_update_policy" ON public.members;
 CREATE POLICY "members_update_policy"
 ON public.members
 FOR UPDATE
 TO anon, authenticated
 USING (true)
-WITH CHECK (
-    points >= 0 AND
-    length(trim(name)) >= 1
-);
+WITH CHECK (true);
 
--- 정책 4: 회원 삭제 (DELETE) - 일반 웹 클라이언트 삭제 원천 차단 (오직 service_role 관리자만 가능)
 DROP POLICY IF EXISTS "members_delete_policy" ON public.members;
 CREATE POLICY "members_delete_policy"
 ON public.members
 FOR DELETE
-TO service_role
+TO anon, authenticated, service_role
 USING (true);
+
+GRANT ALL ON public.members TO anon, authenticated, service_role;
 
 -- 7. 안전한 로그인 인증 RPC 함수 (Security Definer)
 -- 비밀번호를 프론트엔드로 노출시키지 않고, DB 서버 내부에서 안전하게 검증하여 일치할 때만 회원 프로필을 반환합니다.

@@ -44,7 +44,7 @@ interface AdminPageProps {
 }
 
 export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
-  const { orders, updateOrderStatus, allUsers, adminUpdateUserPoints, adminUpdateUserRole } = useAuth();
+  const { orders, updateOrderStatus, allUsers, adminUpdateUserPoints, adminUpdateUserRole, refreshMembers, syncAllMembersToCloud } = useAuth();
   const { showToast } = useToast();
   const {
     products: productsList,
@@ -582,10 +582,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
   };
 
   // DB 키 저장
-  const handleSaveAnonKey = () => {
+  const handleSaveAnonKey = async () => {
     resetSupabaseClient(anonKeyInput);
     showToast('Supabase 키 설정이 저장되었습니다.');
-    handleTestConnection();
+    await handleTestConnection();
+    await syncAllMembersToCloud();
+    await refreshMembers();
   };
 
   return (
@@ -1428,16 +1430,44 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
         {/* 7. MEMBERS TAB (회원 & 포인트 관리) */}
         {activeTab === 'MEMBERS' && (
           <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-6 animate-fade-in">
-            <div className="flex justify-between items-center pb-3 border-b border-paper-300">
+            <div className="flex flex-wrap justify-between items-center gap-3 pb-3 border-b border-paper-300">
               <div>
                 <h2 className="text-base font-serif-kr font-semibold text-ink-900">
-                  회원 등급 및 포인트 관리
+                  회원 계정(이메일/비밀번호) 및 포인트 관리 (Supabase members 연동)
                 </h2>
                 <p className="text-xs text-ink-500 font-serif-kr mt-0.5">
-                  회원별 보유 포인트 직접 증감 및 관리자 권한 부여
+                  cpzyrpaenvzfshqqpmrf.supabase.co 의 members 테이블과 실시간 연동되며, 가입한 이메일과 비밀번호를 확인·동기화합니다.
                 </p>
               </div>
-              <span className="text-xs text-ink-500 font-serif-kr">총 {allUsers.length}명</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-ink-500 font-serif-kr mr-1">총 {allUsers.length}명</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await refreshMembers();
+                    showToast('Supabase members 테이블에서 최신 회원 목록을 불러왔습니다.');
+                  }}
+                  className="px-3 py-1.5 bg-paper-200 border border-paper-300 hover:bg-paper-300 text-ink-800 text-xs font-serif-kr flex items-center gap-1.5 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>DB 회원 새로고침</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const res = await syncAllMembersToCloud();
+                    if (res.success) {
+                      showToast(res.message);
+                    } else {
+                      showToast(res.message, 'error');
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-serif-kr flex items-center gap-1.5 transition-colors"
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>회원 전체 Supabase 업로드</span>
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1445,7 +1475,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
                 <thead className="bg-paper-200 text-ink-700 font-serif-kr">
                   <tr>
                     <th className="py-2.5 px-3">성명</th>
-                    <th className="py-2.5 px-3">이메일 계정</th>
+                    <th className="py-2.5 px-3">이메일 계정 (email)</th>
+                    <th className="py-2.5 px-3">비밀번호 (password)</th>
                     <th className="py-2.5 px-3">연락처</th>
                     <th className="py-2.5 px-3">등급</th>
                     <th className="py-2.5 px-3">보유 포인트</th>
@@ -1457,7 +1488,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
                   {allUsers.map((u) => (
                     <tr key={u.id} className="hover:bg-paper-50">
                       <td className="py-3 px-3 font-serif-kr font-medium text-ink-900">{u.name}</td>
-                      <td className="py-3 px-3">{u.email}</td>
+                      <td className="py-3 px-3 font-mono text-ink-900 font-medium">{u.email}</td>
+                      <td className="py-3 px-3 font-mono text-emerald-800 bg-emerald-50/60">{u.password || '1234'}</td>
                       <td className="py-3 px-3 text-ink-500">{u.phone}</td>
                       <td className="py-3 px-3 font-serif-kr text-bronze">{u.membershipGrade || '전주이씨 가문회원'}</td>
                       <td className="py-3 px-3 font-bold text-lacquer">{u.points.toLocaleString()}P</td>

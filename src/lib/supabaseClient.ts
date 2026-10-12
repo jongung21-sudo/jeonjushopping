@@ -1,9 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// 기본 환경변수
-const defaultUrl = 'https://bjofkwwzeapgjahsjdzb.supabase.co';
+// 기본 환경변수 (신규 프로젝트: cpzyrpaenvzfshqqpmrf)
+const defaultUrl = 'https://cpzyrpaenvzfshqqpmrf.supabase.co';
 const envUrl = import.meta.env.VITE_SUPABASE_URL;
 const envAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+const SUPABASE_KEY_STORAGE = 'jeonjulee_supabase_key_cpzyrpaenvzfshqqpmrf';
 
 export const extractSupabaseKey = (input: string): string => {
   if (!input) return '';
@@ -19,14 +21,19 @@ export const extractSupabaseKey = (input: string): string => {
 // 로컬 스토리지에 저장된 사용자 입력 키 지원 (브라우저에서 바로 연동 가능)
 const getStoredAnonKey = () => {
   try {
-    const raw = localStorage.getItem('jeonjulee_supabase_anon_key') || '';
+    const raw = localStorage.getItem(SUPABASE_KEY_STORAGE) || '';
     return extractSupabaseKey(raw);
   } catch {
     return '';
   }
 };
 
-export const getSupabaseUrl = () => envUrl || defaultUrl;
+export const getSupabaseUrl = () => {
+  if (envUrl && !envUrl.includes('bjofkwwzeapgjahsjdzb') && !envUrl.includes('opyqqllhhirdrcilqsev')) {
+    return envUrl;
+  }
+  return defaultUrl;
+};
 
 export const getSupabaseAnonKey = () => {
   const stored = getStoredAnonKey();
@@ -67,9 +74,9 @@ export const resetSupabaseClient = (newAnonKey?: string) => {
   if (typeof window !== 'undefined' && newAnonKey !== undefined) {
     const extracted = extractSupabaseKey(newAnonKey);
     if (extracted && !extracted.startsWith('http')) {
-      localStorage.setItem('jeonjulee_supabase_anon_key', extracted);
+      localStorage.setItem(SUPABASE_KEY_STORAGE, extracted);
     } else if (!extracted) {
-      localStorage.removeItem('jeonjulee_supabase_anon_key');
+      localStorage.removeItem(SUPABASE_KEY_STORAGE);
     }
   }
   clientInstance = null;
@@ -103,19 +110,21 @@ export const testSupabaseConnection = async (): Promise<{ success: boolean; mess
     if (!membersErr) {
       return {
         success: true,
-        message: '전주이씨 클라우드 DB 및 members(회원) 테이블에 정상 연결되었습니다! 🎉',
+        message: 'Supabase(cpzyrpaenvzfshqqpmrf) 클라우드 DB 및 members(회원가입) 테이블에 정상 연결되었습니다! 🎉',
       };
     }
 
     // members 테이블이 아직 없는 경우
     if (
       membersErr.code === '42P01' || 
+      membersErr.code === 'PGRST205' ||
       membersErr.message.includes('relation') || 
-      membersErr.message.includes('does not exist')
+      membersErr.message.includes('does not exist') ||
+      membersErr.message.includes('schema cache')
     ) {
       return {
         success: true,
-        message: 'Supabase 서버 연결 성공! (단, SQL Editor에서 [Run without RLS]를 눌러 members 테이블을 생성해주세요)',
+        message: 'Supabase 서버(cpzyrpaenvzfshqqpmrf) 연결 성공! 이제 아래 [회원가입 테이블 SQL 복사하기] 버튼을 눌러 SQL Editor에서 [Run]을 실행해주세요.',
       };
     }
 

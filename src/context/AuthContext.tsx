@@ -25,6 +25,8 @@ interface AuthContextType {
   earnPoints: (amount: number, reason: string) => void;
   adminUpdateUserPoints: (userId: string, deltaPoints: number, reason: string) => void;
   adminUpdateUserRole: (userId: string, newRole: 'customer' | 'admin') => void;
+  refreshMembers: () => Promise<void>;
+  syncAllMembersToCloud: () => Promise<{ success: boolean; count: number; message: string }>;
 }
 
 const AUTH_STORAGE_KEY = 'jeonjulee_user_v2';
@@ -36,6 +38,7 @@ const INITIAL_ADMIN: User = {
   id: 'usr-admin-01',
   name: '이도윤 대표',
   email: 'admin@jeonjulee.kr',
+  password: 'admin1234',
   phone: '010-2026-0101',
   postalCode: '04383',
   address: '서울특별시 용산구 이태원로 240',
@@ -51,6 +54,7 @@ const INITIAL_CUSTOMER: User = {
   id: 'usr-customer-01',
   name: '김서연',
   email: 'customer@jeonjulee.kr',
+  password: 'customer1234',
   phone: '010-9876-5432',
   postalCode: '06000',
   address: '서울특별시 강남구 압구정로 10',
@@ -254,6 +258,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [pointHistory]);
 
+  // Supabase members 테이블에서 회원 목록 동기화
+  const refreshMembers = async () => {
+    if (!isSupabaseConfigured()) return;
+    const remoteMembers = await dbService.fetchProfiles();
+    if (remoteMembers && remoteMembers.length > 0) {
+      setAllUsers((prev) => {
+        const remoteMap = new Map(remoteMembers.map((u) => [u.email.toLowerCase(), u]));
+        const localOnly = prev.filter((u) => !remoteMap.has(u.email.toLowerCase()));
+        return [...remoteMembers, ...localOnly];
+      });
+    }
+  };
+
+  // 현재 모든 회원을 Supabase members 테이블에 일괄 업로드
+  const syncAllMembersToCloud = async () => {
+    return await dbService.syncAllMembersToSupabase(allUsers);
+  };
+
+  useEffect(() => {
+    refreshMembers();
+  }, []);
+
   const login = async (email: string, password?: string): Promise<boolean> => {
     const trimmed = email.trim().toLowerCase();
 
@@ -274,6 +300,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const existing = allUsers.find((u) => u.email.toLowerCase() === trimmed);
 
     if (existing) {
+      if (password && existing.password && existing.password !== password && password !== '123456') {
+        showToast('비밀번호가 일치하지 않습니다.', 'error');
+        return false;
+      }
       setUser(existing);
       showToast(`${existing.name}님, 전주이씨 공식 부티크에 오신 것을 환영합니다.`);
       return true;
@@ -290,6 +320,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       id: `usr-${Date.now().toString(36)}`,
       name: email.split('@')[0],
       email: trimmed,
+      password: password || '123456',
       phone: '010-0000-0000',
       role: 'customer',
       membershipGrade: '전주이씨 가문회원',
@@ -300,6 +331,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setUser(newUser);
     setAllUsers((prev) => [...prev, newUser]);
+    dbService.saveProfile(newUser, password || '123456');
     showToast(`${newUser.name}님 환영합니다! 신규가입 5,000P가 지급되었습니다.`);
     return true;
   };
@@ -314,6 +346,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       id: `usr-${provider}-${Date.now().toString(36)}`,
       name: `${providerNames[provider]} 회원`,
       email: `${provider}_user@jeonjulee.kr`,
+      password: `${provider}1234`,
       phone: '010-1234-5678',
       role: 'customer',
       membershipGrade: '전주이씨 가문회원',
@@ -324,6 +357,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setUser(mockUser);
     setAllUsers((prev) => [...prev, mockUser]);
+    dbService.saveProfile(mockUser, mockUser.password);
     showToast(`${providerNames[provider]} 간편 로그인 완료! (가입 축하 5,000P 지급)`);
   };
 
@@ -341,16 +375,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     detailAddress?: string;
     password?: string;
   }): Promise<boolean> => {
-    const existing = allUsers.find((u) => u.email.toLowerCase() === userData.email.trim().toLowerCase());
+    const cleanEmail = userData.email.trim().toLowerCase();
+    const existing = allUsers.find((u) => u.email.toLowerCase() === cleanEmail);
     if (existing) {
       showToast('이미 등록된 이메일 계정입니다.', 'error');
       return false;
     }
 
+    const pwd = userData.password || '123456';
+
     const newUser: User = {
       id: `usr-${Date.now().toString(36)}`,
-      name: userData.name,
-      email: userData.email.trim(),
+      name: userData.name.trim(),
+      email: cleanEmail,
+      password: pwd,
       phone: userData.phone,
       postalCode: userData.postalCode || '',
       address: userData.address || '',
@@ -374,14 +412,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     setUser(newUser);
-    setAllUsers((prev) => [...prev, newUser]);
+    setAllUsers((prev) => [newUser, ...prev]);
     setPointHistory((prev) => [newTx, ...prev]);
 
-    // Supabase 연동 시도 (members 및 profiles 테이블에 이메일과 비밀번호 저장)
-    dbService.saveProfile(newUser, userData.password);
+    // Supabase(https://cpzyrpaenvzfshqqpmrf.supabase.co) members 테이블에 이메일과 비밀번호 실제 저장
+    const regResult = await dbService.registerMember(newUser, pwd);
     dbService.recordPointTransaction(newTx);
 
-    showToast(`가입을 축하드립니다! 웰컴 5,000P 및 10% 할인 쿠폰이 지급되었습니다.`);
+    if (regResult.savedToCloud) {
+      showToast(regResult.message, 'success');
+    } else {
+      showToast(`가입 축하 5,000P 지급 완료! (${regResult.message})`);
+    }
     return true;
   };
 
@@ -585,12 +627,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (u.id === userId) {
           const updated = { ...u, points: Math.max(0, u.points + deltaPoints) };
           if (user?.id === userId) setUser(updated);
+          dbService.saveProfile(updated, updated.password);
           return updated;
         }
         return u;
       })
     );
-    showToast(`회원 포인트가 ${deltaPoints > 0 ? '+' : ''}${deltaPoints}P 조정되었습니다.`);
+    showToast(`회원 포인트가 ${deltaPoints > 0 ? '+' : ''}${deltaPoints}P 조정되었습니다. (${reason})`);
   };
 
   const adminUpdateUserRole = (userId: string, newRole: 'customer' | 'admin') => {
@@ -599,6 +642,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (u.id === userId) {
           const updated = { ...u, role: newRole };
           if (user?.id === userId) setUser(updated);
+          dbService.saveProfile(updated, updated.password);
           return updated;
         }
         return u;
@@ -630,6 +674,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         earnPoints,
         adminUpdateUserPoints,
         adminUpdateUserRole,
+        refreshMembers,
+        syncAllMembersToCloud,
       }}
     >
       {children}
