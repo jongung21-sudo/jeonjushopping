@@ -111,6 +111,10 @@ export interface Order {
   deliveryRequest?: string;
   deliveryMemo?: string;
   paymentMethod: string;
+  paymentKey?: string;
+  pgProvider?: string;
+  receiptUrl?: string;
+  approvedAt?: string;
   trackingCarrier?: string;
   trackingNumber?: string;
   cancelReason?: string;

@@ -17,7 +17,13 @@ interface AuthContextType {
   signup: (userData: { name: string; email: string; phone: string; postalCode?: string; address?: string; detailAddress?: string; password?: string }) => Promise<boolean>;
   findAccount: (phoneOrEmail: string) => { found: boolean; message: string; email?: string };
   resetPassword: (email: string, phone: string, newPassword?: string) => Promise<{ success: boolean; message: string }>;
-  addOrder: (newOrder: Omit<Order, 'id' | 'orderNumber' | 'orderDate'>) => Order;
+  addOrder: (
+    newOrder: Omit<Order, 'id' | 'orderNumber' | 'orderDate'> & {
+      id?: string;
+      orderNumber?: string;
+      orderDate?: string;
+    }
+  ) => Order;
   updateOrderStatus: (orderId: string, status: OrderStatus, trackingCarrier?: string, trackingNumber?: string) => void;
   cancelOrder: (orderId: string, reason: string) => void;
   requestRefund: (orderId: string, reason: string, account?: { bank: string; accountNumber: string; holder: string }) => void;
@@ -523,13 +529,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   };
 
-  const addOrder = (orderData: Omit<Order, 'id' | 'orderNumber' | 'orderDate'>): Order => {
+  const addOrder = (
+    orderData: Omit<Order, 'id' | 'orderNumber' | 'orderDate'> & {
+      id?: string;
+      orderNumber?: string;
+      orderDate?: string;
+    }
+  ): Order => {
     const newOrder: Order = {
       ...orderData,
-      id: `ord-${Date.now()}`,
-      orderNumber: `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`,
-      orderDate: new Date().toISOString().replace('T', ' ').slice(0, 16),
-      status: '결제완료',
+      id: orderData.id || `ord-${Date.now()}`,
+      orderNumber:
+        orderData.orderNumber ||
+        `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`,
+      orderDate: orderData.orderDate || new Date().toISOString().replace('T', ' ').slice(0, 16),
+      status: orderData.status || '결제완료',
     };
 
     setOrders((prev) => [newOrder, ...prev]);

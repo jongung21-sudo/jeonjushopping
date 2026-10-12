@@ -4,6 +4,12 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Order, OrderItem } from '../types';
 import { ShieldCheck, CheckCircle2, ArrowRight, CreditCard, Sparkles, FileText, Tag, Coins } from 'lucide-react';
+import { PgPaymentModal } from '../components/payment/PgPaymentModal';
+import {
+  PendingPaymentOrder,
+  generateMerchantOrderId,
+  savePendingOrderSession,
+} from '../services/paymentService';
 
 interface CheckoutPageProps {
   navigate: (path: string) => void;
@@ -12,10 +18,9 @@ interface CheckoutPageProps {
 
 export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   navigate,
-  onOrderCompleted,
 }) => {
-  const { items, totalProductPrice, clearCart } = useCart();
-  const { user, addOrder, usePoints } = useAuth();
+  const { items, totalProductPrice } = useCart();
+  const { user } = useAuth();
   const { showToast } = useToast();
 
   const [ordererName, setOrdererName] = useState(user?.name || '김서연');
@@ -41,10 +46,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   const [companyName, setCompanyName] = useState('');
   const [businessNumber, setBusinessNumber] = useState('');
 
-  // 4. 결제 수단
+  // 4. 결제 수단 및 PG 결제창 모달 상태
   const [paymentMethod, setPaymentMethod] = useState<string>('신용/체크카드');
   const [isProcessing, setIsProcessing] = useState(false);
   const [termsAgreed, setTermsAgreed] = useState(true);
+  const [isPgModalOpen, setIsPgModalOpen] = useState(false);
+  const [pendingOrderDraft, setPendingOrderDraft] = useState<PendingPaymentOrder | null>(null);
 
   const selectedItems = items.filter((i) => i.selected !== false);
 
@@ -80,6 +87,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     showToast('기본 우편번호 및 주소가 입력되었습니다.');
   };
 
+  // 결제 버튼 클릭 시 -> 주문서 검증 후 PG 결제창(토스페이먼츠 / 포트원) 호출
   const handleProcessPayment = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -89,59 +97,59 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       return;
     }
 
+    if (!recipientName.trim() || !recipientPhone.trim() || !address.trim()) {
+      showToast('수령인 성함, 연락처, 배송지 주소를 모두 입력해 주세요.', 'error');
+      return;
+    }
+
     if (!termsAgreed) {
       showToast('주문 진행을 위한 필수 구매 조건에 동의해 주세요.', 'error');
       return;
     }
 
-    setIsProcessing(true);
+    // OrderItem 목록 포맷팅
+    const orderItems: OrderItem[] = selectedItems.map((item) => ({
+      productId: item.productId,
+      name: item.product.name,
+      image: item.product.images[0] || '',
+      color: item.selectedColor.name,
+      size: item.selectedSize,
+      price: item.product.price,
+      quantity: item.quantity,
+    }));
 
-    setTimeout(() => {
-      // OrderItem 목록 포맷팅
-      const orderItems: OrderItem[] = selectedItems.map((item) => ({
-        productId: item.productId,
-        name: item.product.name,
-        image: item.product.images[0] || '',
-        color: item.selectedColor.name,
-        size: item.selectedSize,
-        price: item.product.price,
-        quantity: item.quantity,
-      }));
+    const orderName =
+      orderItems.length > 1
+        ? `${orderItems[0].name} 외 ${orderItems.length - 1}건`
+        : orderItems[0].name;
 
-      // 포인트 차감
-      if (actualPointsUsed > 0) {
-        usePoints(actualPointsUsed, '주문 결제 시 포인트 사용');
-      }
+    const orderDraft: PendingPaymentOrder = {
+      orderId: generateMerchantOrderId(),
+      orderName,
+      items: orderItems,
+      totalProductPrice,
+      discountPrice: couponDiscountAmount + actualPointsUsed,
+      usedPoints: actualPointsUsed,
+      couponDiscount: couponDiscountAmount,
+      couponCode: selectedCouponCode !== 'NONE' ? selectedCouponCode : undefined,
+      shippingFee,
+      finalPrice,
+      recipientName,
+      recipientPhone,
+      customerEmail: ordererEmail,
+      postalCode,
+      address,
+      detailAddress,
+      deliveryMemo: deliveryRequest,
+      paymentMethod,
+      pgProvider: 'tosspayments',
+      createdAt: new Date().toISOString(),
+    };
 
-      // 주문 생성
-      const createdOrder = addOrder({
-        items: orderItems,
-        totalProductPrice,
-        discountPrice: couponDiscountAmount + actualPointsUsed,
-        usedPoints: actualPointsUsed,
-        couponDiscount: couponDiscountAmount,
-        couponCode: selectedCouponCode !== 'NONE' ? selectedCouponCode : undefined,
-        shippingFee,
-        finalPrice,
-        status: '결제완료',
-        recipientName,
-        recipientPhone,
-        postalCode,
-        address,
-        detailAddress,
-        deliveryMemo: deliveryRequest,
-        paymentMethod,
-      });
-
-      clearCart();
-      setIsProcessing(false);
-      showToast(`주문(${createdOrder.orderNumber})이 성공적으로 완료되었습니다!`);
-
-      if (onOrderCompleted) {
-        onOrderCompleted(createdOrder);
-      }
-      navigate('/orders');
-    }, 900);
+    // 결제 전 주문 세션 저장 (금액 위변조 검증 및 리다이렉트 복원용)
+    savePendingOrderSession(orderDraft);
+    setPendingOrderDraft(orderDraft);
+    setIsPgModalOpen(true);
   };
 
   return (
@@ -348,12 +356,18 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
           {/* 4. 결제 수단 & 세금계산서 */}
           <div className="bg-paper-100 border border-paper-300 p-6 shadow-subtle space-y-4">
-            <h2 className="text-sm font-serif-kr font-semibold text-ink-900 pb-2 border-b border-paper-300">
-              4. 결제 수단 선택
-            </h2>
+            <div className="flex items-center justify-between pb-2 border-b border-paper-300">
+              <h2 className="text-sm font-serif-kr font-semibold text-ink-900">
+                4. 결제 수단 선택 (국내 PG 연동)
+              </h2>
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0064FF] bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                토스페이먼츠 · 포트원 PG 지원
+              </span>
+            </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
-              {['신용/체크카드', '카카오페이', '네이버페이', '토스페이', '무통장입금'].map((method) => (
+              {['신용/체크카드', '카카오페이', '네이버페이', '토스페이', '실시간 계좌이체', '무통장입금'].map((method) => (
                 <button
                   key={method}
                   type="button"
@@ -482,10 +496,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
               className="w-full py-4 bg-ink-900 hover:bg-lacquer text-paper-100 text-xs font-semibold tracking-widest uppercase transition-colors shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isProcessing ? (
-                <span>결제 승인 처리 중...</span>
+                <span>결제창 준비 중...</span>
               ) : (
                 <>
-                  <span>{finalPrice.toLocaleString()}원 결제하기</span>
+                  <span>{finalPrice.toLocaleString()}원 결제하기 (PG 결제창 호출)</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -493,6 +507,17 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           </div>
         </div>
       </form>
+
+      {/* 국내 PG사(토스페이먼츠 / 포트원) 통합 결제창 모달 */}
+      <PgPaymentModal
+        isOpen={isPgModalOpen}
+        pendingOrder={pendingOrderDraft}
+        onClose={() => setIsPgModalOpen(false)}
+        onNavigate={(path) => {
+          setIsPgModalOpen(false);
+          navigate(path);
+        }}
+      />
     </div>
   );
 };

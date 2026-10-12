@@ -33,6 +33,8 @@ import { FaqPage } from './pages/FaqPage';
 import { ContactPage } from './pages/ContactPage';
 import { LegalPage } from './pages/LegalPage';
 import { AdminPage } from './pages/AdminPage';
+import { PaymentSuccessPage } from './pages/PaymentSuccessPage';
+import { PaymentFailPage } from './pages/PaymentFailPage';
 
 export const AppContent: React.FC = () => {
   const { products } = useProducts();
@@ -143,6 +145,10 @@ export const AppContent: React.FC = () => {
             onOrderCompleted={() => {}}
           />
         );
+      case '/payment/success':
+        return <PaymentSuccessPage onNavigate={navigate} />;
+      case '/payment/fail':
+        return <PaymentFailPage onNavigate={navigate} />;
       case '/login':
         return <LoginPage navigate={navigate} />;
       case '/signup':
