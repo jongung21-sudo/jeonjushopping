@@ -3,6 +3,16 @@ import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabaseClient';
 
 export type PgProvider = 'tosspayments' | 'portone';
 
+export interface PgConfig {
+  mode: 'LIVE' | 'TEST';
+  clientKey: string; // live_ck_... / live_gck_... 또는 test_ck_... / test_gck_...
+  secretKey: string; // live_sk_... / live_gsk_... 또는 test_sk_... / test_gsk_...
+  merchantName: string;
+  bankName: string;
+  bankAccount: string;
+  bankHolder: string;
+}
+
 export interface PendingPaymentOrder {
   orderId: string;
   orderName: string;
@@ -50,20 +60,89 @@ export interface PaymentConfirmResponse {
 
 const PENDING_ORDER_STORAGE_KEY = 'jeonjulee_pending_pg_order_v1';
 const CONFIRMED_ORDERS_STORAGE_KEY = 'jeonjulee_confirmed_pg_orders_v1';
+const PG_CONFIG_STORAGE_KEY = 'jeonjulee_pg_live_config_v1';
 
-// 1) 토스페이먼츠 일반결제창(TossPayments V1) 공식 테스트 키 쌍
+// 토스페이먼츠 공식 기본 키 (환경변수에 live_ 키가 있으면 자동으로 실결제(LIVE) 모드로 동작)
 export const TOSS_STANDARD_CLIENT_KEY =
   (import.meta as any).env?.VITE_TOSS_CLIENT_KEY || 'test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq';
 export const TOSS_STANDARD_SECRET_KEY =
   (import.meta as any).env?.VITE_TOSS_SECRET_KEY || 'test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R';
 
-// 2) 토스페이먼츠 결제위젯(PaymentWidget) 공식 테스트 키 쌍
 export const TOSS_WIDGET_CLIENT_KEY =
   (import.meta as any).env?.VITE_TOSS_WIDGET_CLIENT_KEY || 'test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm';
 export const TOSS_WIDGET_SECRET_KEY =
   (import.meta as any).env?.VITE_TOSS_WIDGET_SECRET_KEY || 'test_gsk_docs_OaPz8L5KdmQXkzRz3y47BMw6';
 
-export const DEFAULT_TOSS_CLIENT_KEY = TOSS_STANDARD_CLIENT_KEY;
+export const DEFAULT_TOSS_CLIENT_KEY = TOSS_WIDGET_CLIENT_KEY;
+
+/**
+ * 현재 설정된 PG 키 설정 조회 (관리자가 입력한 live_ck_ / live_sk_ 실결제 키 우선 적용)
+ */
+export function getPgConfig(): PgConfig {
+  try {
+    const saved = localStorage.getItem(PG_CONFIG_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved) as Partial<PgConfig>;
+      const ck = (parsed.clientKey || TOSS_WIDGET_CLIENT_KEY).trim();
+      const sk = (parsed.secretKey || TOSS_WIDGET_SECRET_KEY).trim();
+      const isLive = ck.startsWith('live_');
+      return {
+        mode: isLive ? 'LIVE' : 'TEST',
+        clientKey: ck,
+        secretKey: sk,
+        merchantName: parsed.merchantName || '전주이씨 (JEONJU LEE)',
+        bankName: parsed.bankName || '신한은행',
+        bankAccount: parsed.bankAccount || '140-012-998877',
+        bankHolder: parsed.bankHolder || '전주이씨(이종웅)',
+      };
+    }
+  } catch {
+    // ignore
+  }
+
+  const envCk = (
+    (import.meta as any).env?.VITE_TOSS_CLIENT_KEY ||
+    (import.meta as any).env?.VITE_TOSS_WIDGET_CLIENT_KEY ||
+    TOSS_WIDGET_CLIENT_KEY
+  ).trim();
+  const envSk = (
+    (import.meta as any).env?.VITE_TOSS_SECRET_KEY ||
+    (import.meta as any).env?.VITE_TOSS_WIDGET_SECRET_KEY ||
+    TOSS_WIDGET_SECRET_KEY
+  ).trim();
+
+  return {
+    mode: envCk.startsWith('live_') ? 'LIVE' : 'TEST',
+    clientKey: envCk,
+    secretKey: envSk,
+    merchantName: '전주이씨 (JEONJU LEE)',
+    bankName: '신한은행',
+    bankAccount: '140-012-998877',
+    bankHolder: '전주이씨(이종웅)',
+  };
+}
+
+export function savePgConfig(config: Partial<PgConfig>): PgConfig {
+  const current = getPgConfig();
+  const nextClientKey = (config.clientKey ?? current.clientKey).trim();
+  const nextSecretKey = (config.secretKey ?? current.secretKey).trim();
+  const updated: PgConfig = {
+    ...current,
+    ...config,
+    clientKey: nextClientKey,
+    secretKey: nextSecretKey,
+    mode: nextClientKey.startsWith('live_') ? 'LIVE' : 'TEST',
+  };
+  localStorage.setItem(PG_CONFIG_STORAGE_KEY, JSON.stringify(updated));
+  return updated;
+}
+
+/**
+ * 클라이언트 키가 결제위젯용(_gck_)인지 일반결제창용(_ck_)인지 자동 판별
+ */
+export function isWidgetClientKey(clientKey: string): boolean {
+  return clientKey.includes('_gck_');
+}
 
 declare global {
   interface Window {
@@ -218,12 +297,12 @@ export function loadTossPaymentWidgetScript(): Promise<void> {
 }
 
 /**
- * 실제 토스페이먼츠(Toss Payments) 공식 결제창 호출
- * 클릭 즉시 토스페이먼츠 실결제창이 뜨며, 카드/간편결제 인증 완료 시 /payment/success로 이동합니다.
+ * 토스페이먼츠 표준 결제창(window.TossPayments) 실결제 호출
+ * live_ck_... 키가 설정되어 있으면 실제 카드 출금/결제가 일어납니다.
  */
 export async function requestRealTossPayment(
   pendingOrder: PendingPaymentOrder,
-  clientKey: string = TOSS_STANDARD_CLIENT_KEY
+  customClientKey?: string
 ): Promise<void> {
   savePendingOrderSession(pendingOrder);
   await loadTossPaymentsScript();
@@ -232,12 +311,28 @@ export async function requestRealTossPayment(
     throw new Error('토스페이먼츠 SDK를 불러오지 못했습니다.');
   }
 
-  const tossPayments = window.TossPayments(clientKey.trim());
+  const pgConfig = getPgConfig();
+  // 일반결제창은 _ck_ 키를 사용 (만약 위젯키 _gck_가 들어있다면 기본 표준키 또는 사용자 키 사용)
+  const activeKey =
+    customClientKey ||
+    (!isWidgetClientKey(pgConfig.clientKey) ? pgConfig.clientKey : TOSS_STANDARD_CLIENT_KEY);
+
+  const tossPayments = window.TossPayments(activeKey.trim());
   const origin = window.location.origin;
 
-  // 사용자가 선택한 결제 수단 매핑
   let tossMethod = '카드';
-  if (pendingOrder.paymentMethod.includes('계좌이체')) {
+  let easyPay: string | undefined;
+
+  if (pendingOrder.paymentMethod.includes('카카오페이')) {
+    tossMethod = '카드';
+    easyPay = 'KAKAOPAY';
+  } else if (pendingOrder.paymentMethod.includes('네이버페이')) {
+    tossMethod = '카드';
+    easyPay = 'NAVERPAY';
+  } else if (pendingOrder.paymentMethod.includes('토스페이')) {
+    tossMethod = '카드';
+    easyPay = 'TOSSPAY';
+  } else if (pendingOrder.paymentMethod.includes('계좌이체')) {
     tossMethod = '계좌이체';
   } else if (
     pendingOrder.paymentMethod.includes('무통장') ||
@@ -256,16 +351,19 @@ export async function requestRealTossPayment(
     customerEmail: pendingOrder.customerEmail,
     successUrl: `${origin}/payment/success`,
     failUrl: `${origin}/payment/fail`,
+    ...(easyPay ? { flowMode: 'DIRECT', easyPay } : {}),
   });
 }
 
 /**
  * 실제 토스페이먼츠 결제 승인 API (POST https://api.tosspayments.com/v1/payments/confirm) 호출
+ * live_sk_... 시크릿 키가 설정된 경우 실제 카드 매입 및 출금이 최종 확정됩니다.
  */
 export async function confirmPaymentWithBackend(
   req: PaymentConfirmRequest
 ): Promise<PaymentConfirmResponse> {
   const pendingOrder = getPendingOrderSession();
+  const pgConfig = getPgConfig();
 
   // 1. 주문 금액 위변조 대조
   if (pendingOrder && pendingOrder.orderId === req.orderId) {
@@ -284,9 +382,26 @@ export async function confirmPaymentWithBackend(
     }
   }
 
+  // 직접 무통장 계좌입금 주문인 경우 즉시 입금대기 승인 처리
+  if (req.paymentKey.startsWith('BANK_DIRECT_')) {
+    const approvedAt = new Date().toISOString();
+    return {
+      success: true,
+      paymentKey: req.paymentKey,
+      orderId: req.orderId,
+      amount: req.amount,
+      method: `무통장입금 (${pgConfig.bankName} ${pgConfig.bankAccount})`,
+      pgProvider: 'tosspayments',
+      approvedAt,
+    };
+  }
+
   // 2. 토스페이먼츠 공식 결제 승인 서버(https://api.tosspayments.com/v1/payments/confirm) 호출
-  // 결제위젯 시크릿키(test_gsk_...) 및 일반결제창 시크릿키(test_sk_...) 모두 호환되도록 순차 요청
-  const secretKeysToTry = [TOSS_WIDGET_SECRET_KEY, TOSS_STANDARD_SECRET_KEY];
+  // 사용자가 설정한 실결제 시크릿키(live_sk_... / live_gsk_...)를 최우선으로 시도
+  const secretKeysToTry = Array.from(
+    new Set([pgConfig.secretKey, TOSS_WIDGET_SECRET_KEY, TOSS_STANDARD_SECRET_KEY].filter(Boolean))
+  );
+
   let tossApprovedData: any = null;
   let lastError: { code?: string; message?: string } | null = null;
 
@@ -313,7 +428,6 @@ export async function confirmPaymentWithBackend(
         break;
       } else {
         lastError = data;
-        // 이미 승인 완료된 건인 경우 성공으로 간주
         if (data?.code === 'ALREADY_PROCESSED_PAYMENT') {
           tossApprovedData = {
             paymentKey: req.paymentKey,
