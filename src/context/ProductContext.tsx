@@ -7,6 +7,8 @@ import { isSupabaseConfigured } from '../lib/supabaseClient';
 const PRODUCTS_STORAGE_KEY = 'jeonjulee_products_cache_v2';
 const PRODUCTS_SEEDED_KEY = 'jeonjulee_products_seeded_cpzyrpaenvzfshqqpmrf';
 
+const STORAGE_IMAGES_SYNCED_KEY = 'jeonjulee_storage_products_images_synced_v1';
+
 interface ProductContextType {
   products: Product[];
   isLoading: boolean;
@@ -15,6 +17,7 @@ interface ProductContextType {
   deleteProduct: (id: string) => Promise<{ success: boolean; message: string }>;
   refreshProducts: () => Promise<void>;
   syncAllToSupabase: () => Promise<{ success: boolean; count: number; message: string }>;
+  syncAttachedImagesToStorage: () => Promise<{ success: boolean; uploadedCount: number; message: string }>;
 }
 
 const ProductContext = createContext<ProductContextType | undefined>(undefined);
@@ -47,28 +50,65 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  // Supabase 클라우드에서 최신 상품 목록 가져오기 (테이블이 비어있으면 최초 1회 자동 업로드)
+  // 첨부 이미지 및 상품 이미지를 Supabase Storage 'products' 버킷에 일괄 저장
+  const syncAttachedImagesToStorage = async (): Promise<{
+    success: boolean;
+    uploadedCount: number;
+    message: string;
+  }> => {
+    const currentList = products.length > 0 ? products : PRODUCTS;
+    const res = await dbService.syncAttachedImagesToStorage(currentList);
+    if (res.success) {
+      persistProducts(res.updatedProducts);
+      if (res.uploadedCount > 0) {
+        localStorage.setItem(STORAGE_IMAGES_SYNCED_KEY, 'true');
+      }
+    }
+    return {
+      success: res.success,
+      uploadedCount: res.uploadedCount,
+      message: res.message,
+    };
+  };
+
+  // Supabase 클라우드에서 최신 상품 목록 가져오기 (테이블이 비어있으면 최초 1회 자동 업로드 + 첨부 이미지 Storage 자동 업로드)
   const refreshProducts = async () => {
     if (!isSupabaseConfigured()) return;
     setIsLoading(true);
     try {
+      let activeList = products;
       const remote = await dbService.fetchProducts();
       if (remote && remote.length > 0) {
+        activeList = remote;
         persistProducts(remote);
         localStorage.setItem(PRODUCTS_SEEDED_KEY, 'true');
-        return;
+      } else {
+        // products 테이블은 존재하지만 아직 행이 0개인 경우 현재 상품 목록 자동 업로드
+        const status = await dbService.checkProductsTableStatus();
+        if (status.exists && status.count === 0 && !localStorage.getItem(PRODUCTS_SEEDED_KEY)) {
+          const syncRes = await dbService.syncAllProductsToSupabase(products);
+          if (syncRes.success) {
+            localStorage.setItem(PRODUCTS_SEEDED_KEY, 'true');
+            const afterSeed = await dbService.fetchProducts();
+            if (afterSeed && afterSeed.length > 0) {
+              activeList = afterSeed;
+              persistProducts(afterSeed);
+            }
+          }
+        }
       }
 
-      // products 테이블은 존재하지만 아직 행이 0개인 경우 현재 상품 목록 자동 업로드
-      const status = await dbService.checkProductsTableStatus();
-      if (status.exists && status.count === 0 && !localStorage.getItem(PRODUCTS_SEEDED_KEY)) {
-        const syncRes = await dbService.syncAllProductsToSupabase(products);
-        if (syncRes.success) {
-          localStorage.setItem(PRODUCTS_SEEDED_KEY, 'true');
-          const afterSeed = await dbService.fetchProducts();
-          if (afterSeed && afterSeed.length > 0) {
-            persistProducts(afterSeed);
-          }
+      // 첨부된 이미지(DataURL)가 있거나 최초 Storage 동기화가 아직 안 된 경우 자동으로 Storage 'products' 버킷에 저장
+      const hasInlineDataImage = activeList.some(
+        (p) =>
+          (p.thumbnail && p.thumbnail.startsWith('data:image/')) ||
+          (p.images && p.images.some((img) => img.startsWith('data:image/')))
+      );
+      if (hasInlineDataImage || !localStorage.getItem(STORAGE_IMAGES_SYNCED_KEY)) {
+        const storageRes = await dbService.syncAttachedImagesToStorage(activeList);
+        if (storageRes.success && storageRes.uploadedCount > 0) {
+          persistProducts(storageRes.updatedProducts);
+          localStorage.setItem(STORAGE_IMAGES_SYNCED_KEY, 'true');
         }
       }
     } finally {
@@ -142,6 +182,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
     const res = await dbService.syncAllProductsToSupabase(listToSync);
     if (res.success) {
       localStorage.setItem(PRODUCTS_SEEDED_KEY, 'true');
+      await dbService.syncAttachedImagesToStorage(listToSync);
       await refreshProducts();
     }
     return res;
@@ -157,6 +198,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
         deleteProduct,
         refreshProducts,
         syncAllToSupabase,
+        syncAttachedImagesToStorage,
       }}
     >
       {children}

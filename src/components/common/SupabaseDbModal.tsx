@@ -555,14 +555,31 @@ DROP POLICY IF EXISTS "products_delete_policy" ON public.products;
 CREATE POLICY "products_delete_policy" ON public.products 
 FOR DELETE TO anon, authenticated USING (true);
 
-GRANT ALL ON public.products TO anon, authenticated, service_role;`;
+GRANT ALL ON public.products TO anon, authenticated, service_role;
+
+-- Supabase Storage 'products' 버킷 및 업로드 권한 설정
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('products', 'products', true, 52428800)
+ON CONFLICT (id) DO UPDATE SET public = true, file_size_limit = 52428800;
+
+DROP POLICY IF EXISTS "storage_products_select_policy" ON storage.objects;
+CREATE POLICY "storage_products_select_policy" ON storage.objects FOR SELECT TO public, anon, authenticated USING (bucket_id IN ('products', 'product-images'));
+
+DROP POLICY IF EXISTS "storage_products_insert_policy" ON storage.objects;
+CREATE POLICY "storage_products_insert_policy" ON storage.objects FOR INSERT TO public, anon, authenticated WITH CHECK (bucket_id IN ('products', 'product-images'));
+
+DROP POLICY IF EXISTS "storage_products_update_policy" ON storage.objects;
+CREATE POLICY "storage_products_update_policy" ON storage.objects FOR UPDATE TO public, anon, authenticated USING (bucket_id IN ('products', 'product-images')) WITH CHECK (bucket_id IN ('products', 'product-images'));
+
+DROP POLICY IF EXISTS "storage_products_delete_policy" ON storage.objects;
+CREATE POLICY "storage_products_delete_policy" ON storage.objects FOR DELETE TO public, anon, authenticated USING (bucket_id IN ('products', 'product-images'));`;
                     navigator.clipboard.writeText(sql);
-                    showToast('상품 테이블(products) SQL이 복사되었습니다! Supabase SQL Editor에 붙여넣고 Run을 누르세요.');
+                    showToast('상품 테이블(products) 및 Storage(products) 버킷 권한 SQL이 복사되었습니다! SQL Editor에서 Run을 누르세요.');
                   }}
                   className="w-full py-2 bg-lacquer hover:bg-lacquer/90 text-paper-100 text-xs font-medium rounded-sm transition-colors flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  <span>상품 테이블 SQL 복사하기</span>
+                  <span>상품 + 스토리지(products) SQL 복사</span>
                 </button>
                 <a
                   href="https://supabase.com/dashboard/project/cpzyrpaenvzfshqqpmrf/sql/new"

@@ -687,7 +687,87 @@ export const dbService = {
     }
   },
 
-  // 5. 상품 이미지 업로드 (Supabase Storage 버킷 업로드 시도 + 미설정 시 DataURL fallback)
+  // 내부 헬퍼: DataURL(base64)을 실제 바이너리 Blob으로 변환
+  _dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string; ext: string } | null {
+    try {
+      const parts = dataUrl.split(',');
+      if (parts.length < 2) return null;
+      const mimeMatch = parts[0].match(/:(.*?);/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const ext = mimeType.includes('png')
+        ? 'png'
+        : mimeType.includes('webp')
+        ? 'webp'
+        : mimeType.includes('gif')
+        ? 'gif'
+        : 'jpg';
+      const byteString = atob(parts[1]);
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      return {
+        blob: new Blob([ab], { type: mimeType }),
+        mimeType,
+        ext,
+      };
+    } catch (e) {
+      console.warn('dataUrlToBlob failed:', e);
+      return null;
+    }
+  },
+
+  // 내부 헬퍼: Supabase Storage 'products' 버킷(및 'product-images' 호환)에 파일 업로드
+  async _uploadToStorageBucket(
+    filePath: string,
+    fileOrBlob: File | Blob,
+    contentType: string = 'image/jpeg'
+  ): Promise<{ success: boolean; url: string; bucket: string; error?: string }> {
+    const client = getSupabaseClient();
+    const candidateBuckets = ['products', 'product-images'];
+
+    let lastError = '';
+
+    for (const bucketName of candidateBuckets) {
+      let { error } = await client.storage.from(bucketName).upload(filePath, fileOrBlob, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType,
+      });
+
+      // 버킷이 아직 없으면 자동 생성 시도 후 재업로드
+      if (error && (error.message.toLowerCase().includes('not found') || error.message.toLowerCase().includes('bucket'))) {
+        await client.storage.createBucket(bucketName, { public: true }).catch(() => {});
+        const retry = await client.storage.from(bucketName).upload(filePath, fileOrBlob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType,
+        });
+        error = retry.error;
+      }
+
+      if (!error) {
+        const { data: publicUrlData } = client.storage.from(bucketName).getPublicUrl(filePath);
+        return {
+          success: true,
+          url: publicUrlData.publicUrl,
+          bucket: bucketName,
+        };
+      }
+
+      lastError = error.message;
+    }
+
+    return {
+      success: false,
+      url: '',
+      bucket: 'products',
+      error: lastError,
+    };
+  },
+
+  // 5. 상품 이미지 업로드 (Supabase Storage 'products' 버킷 우선 저장 + 미설정 시 DataURL fallback)
   async uploadProductImage(
     file: File,
     fallbackDataUrl?: string
@@ -704,39 +784,35 @@ export const dbService = {
     }
 
     try {
-      const client = getSupabaseClient();
       const ext = file.name.split('.').pop() || 'jpg';
-      const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const fileName = `products/${Date.now()}_${cleanName}.${ext}`;
+      const cleanName = file.name
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .slice(0, 40) || 'image';
+      const fileName = `${Date.now()}_${cleanName}.${ext}`;
 
-      const { error } = await client.storage
-        .from('product-images')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: true,
-          contentType: file.type || 'image/jpeg',
-        });
+      const uploadRes = await this._uploadToStorageBucket(
+        fileName,
+        file,
+        file.type || 'image/jpeg'
+      );
 
-      if (error) {
-        console.warn('Supabase storage upload failed, using fallback dataUrl:', error.message);
+      if (!uploadRes.success) {
+        console.warn('Supabase storage upload failed, using fallback dataUrl:', uploadRes.error);
         if (fallbackDataUrl) {
           return {
             success: true,
             url: fallbackDataUrl,
-            message: '스토리지 버킷 미설정으로 고화질 최적화 이미지(DB 인라인)로 저장되었습니다.',
+            message: `스토리지(${uploadRes.bucket}) 권한 설정 필요 (${uploadRes.error}) — 우선 DB 인라인 이미지로 저장되었습니다. [스토리지(products) SQL 복사]를 실행해주세요.`,
           };
         }
-        return { success: false, url: '', message: error.message };
+        return { success: false, url: '', message: uploadRes.error || '업로드 실패' };
       }
-
-      const { data: publicUrlData } = client.storage
-        .from('product-images')
-        .getPublicUrl(fileName);
 
       return {
         success: true,
-        url: publicUrlData.publicUrl,
-        message: 'Supabase 스토리지에 이미지가 성공적으로 업로드되었습니다.',
+        url: uploadRes.url,
+        message: `Supabase Storage [${uploadRes.bucket}] 버킷에 이미지 파일(${fileName})이 저장되었습니다!`,
       };
     } catch (e: any) {
       console.warn('Supabase storage exception, using fallback dataUrl:', e);
@@ -749,6 +825,168 @@ export const dbService = {
       }
       return { success: false, url: '', message: e?.message || '이미지 업로드 실패' };
     }
+  },
+
+  // 6. 사용자가 첨부했던 모든 이미지(로컬 첨부 에셋 + 상품 첨부 DataURL + 상품 대표 이미지)를 Supabase Storage 'products' 버킷에 일괄 저장
+  async syncAttachedImagesToStorage(
+    products: Product[]
+  ): Promise<{
+    success: boolean;
+    uploadedCount: number;
+    updatedProducts: Product[];
+    uploadedFiles: string[];
+    message: string;
+  }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        uploadedCount: 0,
+        updatedProducts: products,
+        uploadedFiles: [],
+        message: 'Supabase가 연결되지 않았습니다.',
+      };
+    }
+
+    let uploadedCount = 0;
+    const uploadedFiles: string[] = [];
+    let lastBucketError = '';
+
+    // Step 1: 사용자가 대화 및 프로젝트에 첨부했던 브랜드/상품 원본 이미지 파일들을 Storage 'products' 버킷에 저장
+    const attachedLocalAssets = [
+      { path: '/logo-original.png', storageName: 'attached_logo_original.png', mime: 'image/png' },
+      { path: '/logo-calligraphy.png', storageName: 'attached_logo_calligraphy.png', mime: 'image/png' },
+      { path: '/logo-calligraphy-white.png', storageName: 'attached_logo_calligraphy_white.png', mime: 'image/png' },
+      { path: '/user-dragon-transparent.png', storageName: 'attached_user_dragon.png', mime: 'image/png' },
+      { path: '/korean-dragon-transparent.png', storageName: 'attached_korean_dragon.png', mime: 'image/png' },
+      { path: '/korean-landscape-bg-clean.jpg', storageName: 'attached_korean_landscape_clean.jpg', mime: 'image/jpeg' },
+      { path: '/korean-landscape-bg.jpg', storageName: 'attached_korean_landscape_original.jpg', mime: 'image/jpeg' },
+    ];
+
+    for (const asset of attachedLocalAssets) {
+      try {
+        const res = await fetch(asset.path);
+        if (res.ok) {
+          const blob = await res.blob();
+          const up = await this._uploadToStorageBucket(asset.storageName, blob, asset.mime);
+          if (up.success) {
+            uploadedCount++;
+            uploadedFiles.push(asset.storageName);
+          } else if (up.error) {
+            lastBucketError = up.error;
+          }
+        }
+      } catch (e) {
+        console.warn(`Failed to upload attached asset ${asset.path}:`, e);
+      }
+    }
+
+    // Step 2: 각 상품에 첨부된 이미지(DataURL 직접 업로드분 및 상품 이미지)를 Storage 'products' 버킷에 파일로 저장하고 URL 연동
+    const updatedProducts: Product[] = [];
+    const modifiedProductsForDb: Product[] = [];
+
+    for (const prod of products) {
+      const currentImages =
+        prod.images && prod.images.length > 0
+          ? [...prod.images]
+          : prod.thumbnail
+          ? [prod.thumbnail]
+          : [];
+
+      let prodChanged = false;
+      const newImages: string[] = [];
+
+      for (let idx = 0; idx < currentImages.length; idx++) {
+        const imgStr = currentImages[idx];
+
+        // 이미 Supabase Storage URL인 경우 그대로 유지
+        if (imgStr.includes('.supabase.co/storage/v1/object/public/')) {
+          newImages.push(imgStr);
+          continue;
+        }
+
+        // 케이스 A: 사용자가 파일 업로드로 첨부했던 DataURL (data:image/...)
+        if (imgStr.startsWith('data:image/')) {
+          const parsed = this._dataUrlToBlob(imgStr);
+          if (parsed) {
+            const fileName = `${prod.id}_attached_${idx + 1}.${parsed.ext}`;
+            const up = await this._uploadToStorageBucket(fileName, parsed.blob, parsed.mimeType);
+            if (up.success && up.url) {
+              newImages.push(up.url);
+              uploadedCount++;
+              uploadedFiles.push(fileName);
+              prodChanged = true;
+              continue;
+            } else if (up.error) {
+              lastBucketError = up.error;
+            }
+          }
+          newImages.push(imgStr);
+          continue;
+        }
+
+        // 케이스 B: 상품의 대표/상세 이미지 URL -> 패치하여 Storage 'products' 버킷에도 실제 이미지 파일로 저장
+        if (imgStr.startsWith('http') || imgStr.startsWith('/')) {
+          try {
+            const resp = await fetch(imgStr);
+            if (resp.ok) {
+              const blob = await resp.blob();
+              const mime = blob.type || 'image/jpeg';
+              const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+              const fileName = `${prod.id}_img_${idx + 1}.${ext}`;
+              const up = await this._uploadToStorageBucket(fileName, blob, mime);
+              if (up.success && up.url) {
+                newImages.push(up.url);
+                uploadedCount++;
+                uploadedFiles.push(fileName);
+                prodChanged = true;
+                continue;
+              } else if (up.error) {
+                lastBucketError = up.error;
+              }
+            }
+          } catch (fetchErr) {
+            console.warn(`Image fetch skipped for ${prod.id}:`, fetchErr);
+          }
+        }
+
+        newImages.push(imgStr);
+      }
+
+      if (prodChanged && newImages.length > 0) {
+        const nextProd: Product = {
+          ...prod,
+          images: newImages,
+          thumbnail: newImages[0],
+        };
+        updatedProducts.push(nextProd);
+        modifiedProductsForDb.push(nextProd);
+      } else {
+        updatedProducts.push(prod);
+      }
+    }
+
+    // 변경된 상품 이미지 URL들을 Supabase products 테이블에도 즉시 업데이트
+    if (modifiedProductsForDb.length > 0) {
+      await this._upsertProductsResilient(modifiedProductsForDb);
+    }
+
+    if (uploadedCount === 0 && lastBucketError) {
+      return {
+        success: false,
+        uploadedCount: 0,
+        updatedProducts,
+        uploadedFiles: [],
+        message: `Supabase Storage(products) 업로드 권한/버킷 설정이 필요합니다 (${lastBucketError}). [스토리지(products) SQL 복사] 버튼을 눌러 SQL Editor에서 실행해주세요!`,
+      };
+    }
+
+    return {
+      success: true,
+      uploadedCount,
+      updatedProducts,
+      uploadedFiles,
+      message: `총 ${uploadedCount}개의 첨부 및 상품 이미지가 Supabase Storage [products] 버킷에 저장되고 DB에 연결되었습니다!`,
+    };
   },
 
   // ==========================================
@@ -1215,10 +1453,18 @@ export const dbService = {
       }));
       await client.from('board_posts').upsert(postPayload);
 
+      // 6. 첨부 이미지 및 상품 이미지를 Supabase Storage 'products' 버킷에 일괄 저장
+      const imgRes = await this.syncAttachedImagesToStorage(PRODUCTS);
+
       return {
         success: true,
-        message: `Supabase 데이터베이스에 데이터 동기화 완료! (상품 ${productCount}개, 원부자재 ${materialCount}건, 발주서 ${poCount}건 외)`,
-        counts: { products: productCount, materials: materialCount, purchaseOrders: poCount },
+        message: `Supabase 동기화 완료! (상품 ${productCount}개, 원부자재 ${materialCount}건, 발주서 ${poCount}건, Storage(products) 이미지 ${imgRes.uploadedCount}장 저장)`,
+        counts: {
+          products: productCount,
+          materials: materialCount,
+          purchaseOrders: poCount,
+          storageImages: imgRes.uploadedCount,
+        },
       };
     } catch (err: any) {
       return {

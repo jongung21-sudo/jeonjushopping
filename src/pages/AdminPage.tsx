@@ -53,6 +53,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
     deleteProduct,
     refreshProducts,
     syncAllToSupabase,
+    syncAttachedImagesToStorage,
     isLoading: isProductLoading,
   } = useProducts();
 
@@ -641,9 +642,69 @@ export const AdminPage: React.FC<AdminPageProps> = ({ navigate }) => {
     }
   };
 
-  // products 테이블 SQL 원클릭 복사
+  // 첨부 이미지 및 상품 이미지를 Supabase Storage 'products' 버킷에 일괄 저장
+  const handleSyncImagesToStorage = async () => {
+    setIsSyncingProducts(true);
+    try {
+      const res = await syncAttachedImagesToStorage();
+      if (res.success) {
+        showToast(res.message, 'success');
+      } else {
+        showToast(res.message, 'error');
+      }
+    } finally {
+      setIsSyncingProducts(false);
+    }
+  };
+
+  // Supabase Storage 'products' 버킷 생성 및 RLS 업로드 권한 SQL 복사
+  const handleCopyStorageSql = () => {
+    const sql = `-- 전주이씨 (JEONJU LEE) Supabase Storage 'products' 버킷 생성 및 업로드 권한 SQL
+-- 대상 프로젝트: https://cpzyrpaenvzfshqqpmrf.supabase.co
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+    'products',
+    'products',
+    true,
+    52428800,
+    ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']
+)
+ON CONFLICT (id) DO UPDATE SET
+    public = true,
+    file_size_limit = 52428800,
+    allowed_mime_types = ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+    'product-images',
+    'product-images',
+    true,
+    52428800,
+    ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']
+)
+ON CONFLICT (id) DO UPDATE SET
+    public = true,
+    file_size_limit = 52428800,
+    allowed_mime_types = ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+
+DROP POLICY IF EXISTS "storage_products_select_policy" ON storage.objects;
+CREATE POLICY "storage_products_select_policy" ON storage.objects FOR SELECT TO public, anon, authenticated USING (bucket_id IN ('products', 'product-images'));
+
+DROP POLICY IF EXISTS "storage_products_insert_policy" ON storage.objects;
+CREATE POLICY "storage_products_insert_policy" ON storage.objects FOR INSERT TO public, anon, authenticated WITH CHECK (bucket_id IN ('products', 'product-images'));
+
+DROP POLICY IF EXISTS "storage_products_update_policy" ON storage.objects;
+CREATE POLICY "storage_products_update_policy" ON storage.objects FOR UPDATE TO public, anon, authenticated USING (bucket_id IN ('products', 'product-images')) WITH CHECK (bucket_id IN ('products', 'product-images'));
+
+DROP POLICY IF EXISTS "storage_products_delete_policy" ON storage.objects;
+CREATE POLICY "storage_products_delete_policy" ON storage.objects FOR DELETE TO public, anon, authenticated USING (bucket_id IN ('products', 'product-images'));`;
+    navigator.clipboard.writeText(sql);
+    showToast('Supabase Storage [products] 버킷 생성 및 권한 SQL이 복사되었습니다! SQL Editor에서 Run을 실행하세요.');
+  };
+
+  // products 테이블 + Storage 'products' 버킷 SQL 원클릭 복사
   const handleCopyProductsSql = () => {
-    const sql = `-- 전주이씨 (JEONJU LEE) 상품(products) 마스터 테이블 생성 및 권한 설정 SQL
+    const sql = `-- 전주이씨 (JEONJU LEE) 상품(products) 테이블 및 Storage(products) 버킷 통합 권한 SQL
 -- 대상 프로젝트: https://cpzyrpaenvzfshqqpmrf.supabase.co
 CREATE TABLE IF NOT EXISTS public.products (
     id TEXT PRIMARY KEY,
@@ -689,9 +750,26 @@ CREATE POLICY "products_update_policy" ON public.products FOR UPDATE TO anon, au
 DROP POLICY IF EXISTS "products_delete_policy" ON public.products;
 CREATE POLICY "products_delete_policy" ON public.products FOR DELETE TO anon, authenticated USING (true);
 
-GRANT ALL ON public.products TO anon, authenticated, service_role;`;
+GRANT ALL ON public.products TO anon, authenticated, service_role;
+
+-- Supabase Storage 'products' 버킷 및 업로드 권한 설정
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('products', 'products', true, 52428800)
+ON CONFLICT (id) DO UPDATE SET public = true, file_size_limit = 52428800;
+
+DROP POLICY IF EXISTS "storage_products_select_policy" ON storage.objects;
+CREATE POLICY "storage_products_select_policy" ON storage.objects FOR SELECT TO public, anon, authenticated USING (bucket_id IN ('products', 'product-images'));
+
+DROP POLICY IF EXISTS "storage_products_insert_policy" ON storage.objects;
+CREATE POLICY "storage_products_insert_policy" ON storage.objects FOR INSERT TO public, anon, authenticated WITH CHECK (bucket_id IN ('products', 'product-images'));
+
+DROP POLICY IF EXISTS "storage_products_update_policy" ON storage.objects;
+CREATE POLICY "storage_products_update_policy" ON storage.objects FOR UPDATE TO public, anon, authenticated USING (bucket_id IN ('products', 'product-images')) WITH CHECK (bucket_id IN ('products', 'product-images'));
+
+DROP POLICY IF EXISTS "storage_products_delete_policy" ON storage.objects;
+CREATE POLICY "storage_products_delete_policy" ON storage.objects FOR DELETE TO public, anon, authenticated USING (bucket_id IN ('products', 'product-images'));`;
     navigator.clipboard.writeText(sql);
-    showToast('products 테이블 생성 SQL이 복사되었습니다! Supabase SQL Editor에 붙여넣고 Run을 실행하세요.');
+    showToast('products 테이블 및 Storage(products) 버킷 권한 SQL이 복사되었습니다! SQL Editor에 붙여넣고 Run을 실행하세요.');
   };
 
   // 원부자재/발주(materials & purchase_orders) 테이블 생성 SQL 원클릭 복사
@@ -1353,9 +1431,28 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
               {/* 액션 버튼 그룹 */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
+                  onClick={handleCopyStorageSql}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-300 hover:bg-amber-100 text-xs font-serif-kr text-amber-900 transition-colors"
+                  title="Supabase Storage [products] 버킷 생성 및 업로드 허용 RLS SQL 복사"
+                >
+                  <Database className="w-3.5 h-3.5 text-amber-700" />
+                  <span>스토리지(products) SQL 복사</span>
+                </button>
+
+                <button
+                  onClick={handleSyncImagesToStorage}
+                  disabled={isSyncingProducts}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 text-xs font-serif-kr text-emerald-900 font-semibold transition-colors disabled:opacity-50"
+                  title="첨부했던 모든 이미지(로고, 청룡, 산수화, 상품 첨부 사진 등)를 Supabase Storage [products] 버킷에 파일로 저장합니다"
+                >
+                  <ImageIcon className={`w-3.5 h-3.5 text-emerald-700 ${isSyncingProducts ? 'animate-pulse' : ''}`} />
+                  <span>첨부 이미지 Storage(products) 저장</span>
+                </button>
+
+                <button
                   onClick={handleCopyProductsSql}
                   className="flex items-center gap-1.5 px-3 py-2 bg-paper-50 border border-bronze/50 hover:bg-paper-200 text-xs font-serif-kr text-ink-800 transition-colors"
-                  title="Supabase SQL Editor에 실행할 products 테이블 및 권한 SQL 복사"
+                  title="Supabase SQL Editor에 실행할 products 테이블 및 Storage 권한 SQL 복사"
                 >
                   <Database className="w-3.5 h-3.5 text-bronze" />
                   <span>products 테이블 SQL 복사</span>
@@ -1375,7 +1472,7 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
                   onClick={handleSyncSeedToSupabase}
                   disabled={isSyncingProducts}
                   className="flex items-center gap-1.5 px-3 py-2 bg-paper-50 border border-paper-300 hover:border-ink-700 text-xs font-serif-kr text-ink-800 transition-colors disabled:opacity-50"
-                  title="현재 등록된 전체 상품 데이터를 Supabase products 테이블에 일괄 업로드"
+                  title="현재 등록된 전체 상품 데이터 및 첨부 이미지를 Supabase products 테이블/스토리지에 일괄 업로드"
                 >
                   <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
                   <span>전체 상품 DB 업로드</span>
