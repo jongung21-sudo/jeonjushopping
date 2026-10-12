@@ -673,7 +673,7 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
                 </button>
                 <button
                   onClick={() => {
-                    const sql = `-- 전주이씨 (JEONJU LEE) 대시보드 요약(dashboard_summary) & 실시간 주문내역(dashboard_orders, orders) 직관적 한글 설명 SQL
+                    const sql = `-- 전주이씨 (JEONJU LEE) 대시보드 요약(dashboard_summary) & 실시간 주문내역(dashboard_orders, orders) & 원부자재 통합 SQL
 CREATE TABLE IF NOT EXISTS public.dashboard_summary (
     id TEXT PRIMARY KEY DEFAULT 'main',
     brand_name TEXT NOT NULL DEFAULT '전주이씨 (JEONJU LEE)',
@@ -773,9 +773,71 @@ DROP POLICY IF EXISTS "orders_update_policy" ON public.orders;
 CREATE POLICY "orders_update_policy" ON public.orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS "orders_delete_policy" ON public.orders;
 CREATE POLICY "orders_delete_policy" ON public.orders FOR DELETE TO anon, authenticated USING (true);
-GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
+GRANT ALL ON public.orders TO anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS public.materials (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    current_stock INTEGER NOT NULL DEFAULT 0,
+    safe_stock INTEGER NOT NULL DEFAULT 20,
+    unit_cost INTEGER NOT NULL DEFAULT 0,
+    supplier TEXT NOT NULL,
+    updated_at DATE NOT NULL DEFAULT CURRENT_DATE
+);
+COMMENT ON TABLE public.materials IS '🧵 [원부자재 재고] 원단, 안감, 부자재, 패키지 현재고 및 안전재고';
+ALTER TABLE public.materials ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "materials_select_policy" ON public.materials;
+CREATE POLICY "materials_select_policy" ON public.materials FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "materials_insert_policy" ON public.materials;
+CREATE POLICY "materials_insert_policy" ON public.materials FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "materials_update_policy" ON public.materials;
+CREATE POLICY "materials_update_policy" ON public.materials FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "materials_delete_policy" ON public.materials;
+CREATE POLICY "materials_delete_policy" ON public.materials FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.materials TO anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS public.purchase_orders (
+    id TEXT PRIMARY KEY,
+    po_number TEXT UNIQUE NOT NULL,
+    item_type TEXT NOT NULL DEFAULT '원부자재',
+    item_name TEXT NOT NULL,
+    supplier TEXT NOT NULL DEFAULT '국내 공방',
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_cost INTEGER NOT NULL DEFAULT 0,
+    total_cost INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT '발주승인',
+    expected_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at DATE NOT NULL DEFAULT CURRENT_DATE
+);
+COMMENT ON TABLE public.purchase_orders IS '📋 [원부자재 발주관리] 거래처 발주서, 입고예정일 및 입고상태';
+ALTER TABLE public.purchase_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "po_select_policy" ON public.purchase_orders;
+CREATE POLICY "po_select_policy" ON public.purchase_orders FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "po_insert_policy" ON public.purchase_orders;
+CREATE POLICY "po_insert_policy" ON public.purchase_orders FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "po_update_policy" ON public.purchase_orders;
+CREATE POLICY "po_update_policy" ON public.purchase_orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "po_delete_policy" ON public.purchase_orders;
+CREATE POLICY "po_delete_policy" ON public.purchase_orders FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;
+
+INSERT INTO public.dashboard_summary (
+    id, brand_name, ceo_name, total_revenue, total_order_count,
+    pending_shipping_count, refund_request_count, registered_member_count,
+    low_stock_material_count, total_product_count, total_po_count, updated_at
+) VALUES (
+    'main', '전주이씨 (JEONJU LEE)', '이종웅 대표',
+    484200, 2, 0, 0, 3, 2, 20, 3, NOW()
+) ON CONFLICT (id) DO UPDATE SET
+    ceo_name = EXCLUDED.ceo_name,
+    total_revenue = EXCLUDED.total_revenue,
+    total_order_count = EXCLUDED.total_order_count,
+    updated_at = NOW();`;
                     navigator.clipboard.writeText(sql);
-                    showToast('대시보드(dashboard_summary, dashboard_orders) & 주문(orders) SQL이 복사되었습니다!');
+                    showToast('대시보드(dashboard_summary, dashboard_orders) & 주문(orders) & 원부자재 통합 SQL이 복사되었습니다!');
                   }}
                   className="w-full py-2 bg-lacquer hover:bg-lacquer-light text-paper-100 text-xs font-medium rounded-sm transition-colors flex items-center justify-center gap-1.5 shadow-sm"
                 >

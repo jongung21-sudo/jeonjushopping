@@ -920,10 +920,13 @@ GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;`;
 
   // 대시보드/주문(dashboard_summary, dashboard_orders, orders) 직관적 네이밍 SQL 원클릭 복사
   const handleCopyDashboardSql = () => {
-    const sql = `-- 전주이씨 (JEONJU LEE) 관리자 대시보드 & 실시간 주문 내역 직관적 테이블 생성 SQL
+    const sql = `-- =====================================================================================
+-- 전주이씨 (JEONJU LEE) 대시보드 · 주문 · 원부자재 · 발주 통합 테이블 생성 및 초기 데이터 SQL
 -- 대상 프로젝트: https://cpzyrpaenvzfshqqpmrf.supabase.co
+-- (어떤 테이블이 없더라도 에러(42P01) 없이 한 번에 모두 생성 및 초기 데이터가 입력됩니다)
+-- =====================================================================================
 
--- 1. 📊 [대시보드 요약] (dashboard_summary)
+-- 1. 📊 [대시보드 요약] (public.dashboard_summary)
 CREATE TABLE IF NOT EXISTS public.dashboard_summary (
     id TEXT PRIMARY KEY DEFAULT 'main',
     brand_name TEXT NOT NULL DEFAULT '전주이씨 (JEONJU LEE)',
@@ -958,7 +961,7 @@ DROP POLICY IF EXISTS "dashboard_summary_delete_policy" ON public.dashboard_summ
 CREATE POLICY "dashboard_summary_delete_policy" ON public.dashboard_summary FOR DELETE TO anon, authenticated USING (true);
 GRANT ALL ON public.dashboard_summary TO anon, authenticated, service_role;
 
--- 2. 📦 [대시보드 실시간 주문내역] (dashboard_orders)
+-- 2. 📦 [대시보드 실시간 주문내역] (public.dashboard_orders)
 CREATE TABLE IF NOT EXISTS public.dashboard_orders (
     id TEXT PRIMARY KEY,
     order_number TEXT UNIQUE NOT NULL,                    -- 주문번호 (예: ORD-20260305-8821)
@@ -995,7 +998,7 @@ DROP POLICY IF EXISTS "dashboard_orders_delete_policy" ON public.dashboard_order
 CREATE POLICY "dashboard_orders_delete_policy" ON public.dashboard_orders FOR DELETE TO anon, authenticated USING (true);
 GRANT ALL ON public.dashboard_orders TO anon, authenticated, service_role;
 
--- 3. 🛒 [주문/배송/환불 관리] (orders)
+-- 3. 🛒 [주문/배송/환불 관리] (public.orders)
 CREATE TABLE IF NOT EXISTS public.orders (
     id TEXT PRIMARY KEY,
     order_number TEXT UNIQUE NOT NULL,
@@ -1034,10 +1037,6 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_status TEXT DEFAULT 'n
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_account JSONB;
 
 COMMENT ON TABLE public.orders IS '🛒 [주문/배송/환불 관리] 전체 주문 상세 내역 및 송장/환불 정보';
-COMMENT ON TABLE public.members IS '👥 [회원 관리] 가입 회원 계정, 이메일, 비밀번호, 등급 및 적립금';
-COMMENT ON TABLE public.products IS '👘 [상품/재고 관리] 전주이씨 컬렉션 상품 목록, 가격, 재고, 이미지';
-COMMENT ON TABLE public.materials IS '🧵 [원부자재 재고] 원단, 안감, 부자재, 패키지 현재고 및 안전재고';
-COMMENT ON TABLE public.purchase_orders IS '📋 [원부자재 발주관리] 거래처 발주서, 입고예정일 및 입고상태';
 
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "orders_select_policy" ON public.orders;
@@ -1048,9 +1047,169 @@ DROP POLICY IF EXISTS "orders_update_policy" ON public.orders;
 CREATE POLICY "orders_update_policy" ON public.orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS "orders_delete_policy" ON public.orders;
 CREATE POLICY "orders_delete_policy" ON public.orders FOR DELETE TO anon, authenticated USING (true);
-GRANT ALL ON public.orders TO anon, authenticated, service_role;`;
+GRANT ALL ON public.orders TO anon, authenticated, service_role;
+
+-- 4. 🧵 [원부자재 재고] (public.materials) - 없을 경우 함께 자동 생성
+CREATE TABLE IF NOT EXISTS public.materials (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    current_stock INTEGER NOT NULL DEFAULT 0,
+    safe_stock INTEGER NOT NULL DEFAULT 20,
+    unit_cost INTEGER NOT NULL DEFAULT 0,
+    supplier TEXT NOT NULL,
+    updated_at DATE NOT NULL DEFAULT CURRENT_DATE
+);
+
+ALTER TABLE public.materials ADD COLUMN IF NOT EXISTS safe_stock INTEGER NOT NULL DEFAULT 20;
+ALTER TABLE public.materials ADD COLUMN IF NOT EXISTS unit_cost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.materials ADD COLUMN IF NOT EXISTS updated_at DATE NOT NULL DEFAULT CURRENT_DATE;
+COMMENT ON TABLE public.materials IS '🧵 [원부자재 재고] 원단, 안감, 부자재, 패키지 현재고 및 안전재고';
+
+ALTER TABLE public.materials ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "materials_select_policy" ON public.materials;
+CREATE POLICY "materials_select_policy" ON public.materials FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "materials_insert_policy" ON public.materials;
+CREATE POLICY "materials_insert_policy" ON public.materials FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "materials_update_policy" ON public.materials;
+CREATE POLICY "materials_update_policy" ON public.materials FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "materials_delete_policy" ON public.materials;
+CREATE POLICY "materials_delete_policy" ON public.materials FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.materials TO anon, authenticated, service_role;
+
+-- 5. 📋 [원부자재 발주관리] (public.purchase_orders) - 없을 경우 함께 자동 생성
+CREATE TABLE IF NOT EXISTS public.purchase_orders (
+    id TEXT PRIMARY KEY,
+    po_number TEXT UNIQUE NOT NULL,
+    item_type TEXT NOT NULL DEFAULT '원부자재',
+    item_name TEXT NOT NULL,
+    supplier TEXT NOT NULL DEFAULT '국내 공방',
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_cost INTEGER NOT NULL DEFAULT 0,
+    total_cost INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT '발주승인',
+    expected_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at DATE NOT NULL DEFAULT CURRENT_DATE
+);
+
+COMMENT ON TABLE public.purchase_orders IS '📋 [원부자재 발주관리] 거래처 발주서, 입고예정일 및 입고상태';
+
+ALTER TABLE public.purchase_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "po_select_policy" ON public.purchase_orders;
+CREATE POLICY "po_select_policy" ON public.purchase_orders FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "po_insert_policy" ON public.purchase_orders;
+CREATE POLICY "po_insert_policy" ON public.purchase_orders FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "po_update_policy" ON public.purchase_orders;
+CREATE POLICY "po_update_policy" ON public.purchase_orders FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "po_delete_policy" ON public.purchase_orders;
+CREATE POLICY "po_delete_policy" ON public.purchase_orders FOR DELETE TO anon, authenticated USING (true);
+GRANT ALL ON public.purchase_orders TO anon, authenticated, service_role;
+
+-- 6. 초기 대시보드 데이터(매출 요약 + 실시간 주문 2건) 즉시 삽입
+INSERT INTO public.dashboard_summary (
+    id, brand_name, ceo_name, total_revenue, total_order_count,
+    pending_shipping_count, refund_request_count, registered_member_count,
+    low_stock_material_count, total_product_count, total_po_count, updated_at
+) VALUES (
+    'main', '전주이씨 (JEONJU LEE)', '이종웅 대표',
+    484200, 2, 0, 0, 3, 2, 20, 3, NOW()
+) ON CONFLICT (id) DO UPDATE SET
+    ceo_name = EXCLUDED.ceo_name,
+    total_revenue = EXCLUDED.total_revenue,
+    total_order_count = EXCLUDED.total_order_count,
+    pending_shipping_count = EXCLUDED.pending_shipping_count,
+    refund_request_count = EXCLUDED.refund_request_count,
+    registered_member_count = EXCLUDED.registered_member_count,
+    low_stock_material_count = EXCLUDED.low_stock_material_count,
+    updated_at = NOW();
+
+INSERT INTO public.dashboard_orders (
+    id, order_number, order_date, customer_name, product_name,
+    final_price, status, payment_method, tracking_carrier, tracking_number,
+    recipient_phone, address, items, updated_at
+) VALUES
+(
+    'ord-20260305-01',
+    'ORD-20260305-8821',
+    '2026-03-05 14:20',
+    '김서연',
+    '울 캐시미어 릴렉스드 도포 코트',
+    416200,
+    '배송중',
+    '신용/체크카드 (현대카드)',
+    'CJ대한통운',
+    '6482-9103-4412',
+    '010-9876-5432',
+    '서울특별시 강남구 압구정로 10 101동 502호',
+    '[{"productId":"jl-out-01","name":"울 캐시미어 릴렉스드 도포 코트","image":"https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=600&q=80","color":"먹색 (Ink Black)","size":"L (100-105)","price":468000,"quantity":1}]'::jsonb,
+    NOW()
+),
+(
+    'ord-20260228-02',
+    'ORD-20260228-3312',
+    '2026-02-28 19:05',
+    '김서연',
+    '전통 매듭 노리개 키링 & 가죽 참',
+    68000,
+    '배송완료',
+    '간편결제 (카카오페이)',
+    '우체국택배',
+    '1049-2281-9930',
+    '010-9876-5432',
+    '서울특별시 강남구 압구정로 10 101동 502호',
+    '[{"productId":"jl-acc-02","name":"전통 매듭 노리개 키링 & 가죽 참","image":"https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=600&q=80","color":"비취/적색 (Jade & Crimson)","size":"FREE","price":68000,"quantity":1}]'::jsonb,
+    NOW()
+)
+ON CONFLICT (id) DO UPDATE SET
+    order_number = EXCLUDED.order_number,
+    order_date = EXCLUDED.order_date,
+    customer_name = EXCLUDED.customer_name,
+    product_name = EXCLUDED.product_name,
+    final_price = EXCLUDED.final_price,
+    status = EXCLUDED.status,
+    updated_at = NOW();
+
+INSERT INTO public.orders (
+    id, order_number, customer_name, product_summary, order_date, items,
+    total_product_price, discount_price, used_points, coupon_discount, coupon_code,
+    shipping_fee, final_price, status, recipient_name, recipient_phone,
+    postal_code, address, detail_address, delivery_memo, payment_method,
+    tracking_carrier, tracking_number
+) VALUES
+(
+    'ord-20260305-01',
+    'ORD-20260305-8821',
+    '김서연',
+    '울 캐시미어 릴렉스드 도포 코트',
+    '2026-03-05 14:20',
+    '[{"productId":"jl-out-01","name":"울 캐시미어 릴렉스드 도포 코트","image":"https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=600&q=80","color":"먹색 (Ink Black)","size":"L (100-105)","price":468000,"quantity":1}]'::jsonb,
+    468000, 46800, 5000, 46800, 'WELCOME10',
+    0, 416200, '배송중', '김서연', '010-9876-5432',
+    '06000', '서울특별시 강남구 압구정로 10', '101동 502호', '문 앞에 놓아주세요.',
+    '신용/체크카드 (현대카드)', 'CJ대한통운', '6482-9103-4412'
+),
+(
+    'ord-20260228-02',
+    'ORD-20260228-3312',
+    '김서연',
+    '전통 매듭 노리개 키링 & 가죽 참',
+    '2026-02-28 19:05',
+    '[{"productId":"jl-acc-02","name":"전통 매듭 노리개 키링 & 가죽 참","image":"https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=600&q=80","color":"비취/적색 (Jade & Crimson)","size":"FREE","price":68000,"quantity":1}]'::jsonb,
+    68000, 0, 0, 0, NULL,
+    0, 68000, '배송완료', '김서연', '010-9876-5432',
+    '06000', '서울특별시 강남구 압구정로 10', '101동 502호', '경비실에 맡겨주세요.',
+    '간편결제 (카카오페이)', '우체국택배', '1049-2281-9930'
+)
+ON CONFLICT (id) DO UPDATE SET
+    order_number = EXCLUDED.order_number,
+    customer_name = EXCLUDED.customer_name,
+    product_summary = EXCLUDED.product_summary,
+    final_price = EXCLUDED.final_price,
+    status = EXCLUDED.status;`;
     navigator.clipboard.writeText(sql);
-    showToast('대시보드 요약(dashboard_summary) 및 주문내역(dashboard_orders, orders) 직관적 한글 설명 SQL이 복사되었습니다!');
+    showToast('대시보드·주문·원부자재 통합 생성 SQL이 복사되었습니다! (에러 42P01 해결 버전)');
   };
 
   // 대시보드 통계 및 실시간 주문내역 전체를 Supabase에 즉시 저장
